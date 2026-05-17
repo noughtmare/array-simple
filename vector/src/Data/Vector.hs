@@ -394,7 +394,7 @@ unfoldrExactN  :: Int -> (b -> (a, b)) -> b -> Vector a
 unfoldrExactN n f x = unfoldrN n (Just Prelude.. f) x
 
 -- Quick ad-hoc identity monad for pure versions of monadic operations.
-data Identity a = Identity { unIdentity :: a } deriving Prelude.Functor
+newtype Identity a = Identity { unIdentity :: a } deriving Prelude.Functor
 instance Applicative Identity where
   pure = Identity
   Identity f <*> Identity x = Identity (f x)
@@ -444,6 +444,7 @@ iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
 --
 -- @since 0.12.2.0
 unfoldrExactNM :: (Monad m) => Int -> (b -> m (a, b)) -> b -> m (Vector a)
+{-# INLINE unfoldrExactNM #-}
 unfoldrExactNM n f x0 = unfoldrNM n (Prelude.fmap Just Prelude.. f) x0
 
 -- This rule makes sure that fmap Just above gets optimized properly after unfoldrNM 
@@ -564,7 +565,12 @@ generateM n f = iunfoldrNM n (\i () -> do x <- f i; Prelude.return (Just (x, ())
 -- @since 0.12.0.0
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m (Vector a)
 {-# INLINE iterateNM #-}
-iterateNM n f x0 = unfoldrExactNM n (\x -> do x' <- f x; Prelude.return (x', x')) x0
+-- TODO: this doesn't produce optimal Core:
+iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; Prelude.return (x' `Prelude.seq` Just (x, x'))) x0
+-- TODO: all monadic functions should have specialize for IO:
+{-# SPECIALIZE iterateNM :: Int -> (a -> Prelude.IO a) -> a -> Prelude.IO (Vector a) #-}
+-- TODO: consider if we really want this:
+{-# SPECIALIZE iterateNM :: Int -> (a -> Identity a) -> a -> Identity (Vector a) #-}
 
 -- -- -- | Execute the monadic action and freeze the resulting vector.
 -- -- --
@@ -820,7 +826,7 @@ imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- 
 -- results.
 mapM_ :: Monad m => (a -> m b) -> Vector a -> m ()
 {-# INLINE mapM_ #-}
-mapM_ f v = foldr (\x xs -> x `Prelude.seq` (f x Prelude.>> xs)) (Prelude.return ()) v
+mapM_ f v = foldr (\ !x xs -> f x Prelude.>> xs) (Prelude.return ()) v
 
 -- | /O(n)/ Apply the monadic action to every element of a vector and its
 -- index, ignoring the results.
