@@ -1,7 +1,7 @@
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
 {-# LANGUAGE TypeAbstractions #-}
-{-# OPTIONS_GHC -ddump-simpl -dsuppress-all -dno-typeable-binds -dno-suppress-type-signatures -ddump-to-file #-}
+{-# OPTIONS_GHC -ddump-simpl -ddump-stg-final -dsuppress-all -dno-typeable-binds -dno-suppress-type-signatures -ddump-to-file #-}
 -- |
 -- Module      : Data.Vector
 -- Copyright   : (c) Roman Leshchinskiy 2008-2010
@@ -56,7 +56,7 @@ module Data.Vector (
   empty, singleton, replicate, generate, iterateN,
 
   -- ** Monadic initialisation
-  -- replicateM, generateM, iterateNM, 
+  replicateM, generateM, iterateNM, 
   -- -- create, createT,
 
   -- -- ** Unfolding
@@ -72,7 +72,7 @@ module Data.Vector (
 
   -- -- ** Concatenation
   -- -- cons, snoc, 
-  -- (++), concat,
+  (++), concat,
 
   -- -- -- ** Restricting memory usage
   -- -- force,
@@ -99,10 +99,12 @@ module Data.Vector (
   -- indexed,
 
   -- -- ** Mapping
-  -- map, imap, concatMap, iconcatMap,
+  map, imap, 
+  -- concatMap, iconcatMap,
 
   -- -- ** Monadic mapping
-  -- mapM, imapM, mapM_, imapM_, forM, forM_,
+  mapM, imapM, mapM_, 
+  -- imapM_, forM, forM_,
   -- iforM, iforM_,
 
   -- -- ** Zipping
@@ -424,7 +426,7 @@ iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
     go s !x i = case i Exts.<# n of
       0# ->
         let !(# _, arr' #) = Exts.unsafeFreezeArray# marr s
-        in Prelude.pure (MkVector arr')
+        in Prelude.return (MkVector arr')
       _ -> do
         may <- f (Exts.I# i) x
         case may of
@@ -433,7 +435,7 @@ iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
             in go s' x' (i Exts.+# 1#)
           Nothing -> 
             let !(# _, arr' #) = Exts.freezeArray# marr 0# i s 
-            in Prelude.pure (MkVector arr')
+            in Prelude.return (MkVector arr')
   in go s1 x0 0#)
 
 -- | /O(n)/ Construct a vector with exactly @n@ elements by repeatedly
@@ -448,6 +450,11 @@ unfoldrExactNM n f x0 = unfoldrNM n (Prelude.fmap Just Prelude.. f) x0
 -- is inlined:
 {-# RULES
 "fmap/>>=" forall f x k. Prelude.fmap f x Prelude.>>= k = x Prelude.>>= \x' -> k (f x')
+">>=/>>=" forall x y z. (x Prelude.>>= y) Prelude.>>= z = x Prelude.>>= \x' -> y x' Prelude.>>= z
+">>=/return" forall x. x Prelude.>>= Prelude.return = x
+"return/>>=" forall x f. Prelude.return x Prelude.>>= f = f x
+">>=/pure" forall x. x Prelude.>>= Prelude.pure = x
+"pure/>>=" forall x k. Prelude.pure x Prelude.>>= k = k x
 #-}
 
 -- -- | /O(n)/ Construct a vector with @n@ elements by repeatedly applying the
@@ -515,42 +522,49 @@ enumFromStepN x0 y n = unfoldrExactN n (\x -> (x, x + y)) x0
 -- {-# INLINE snoc #-}
 -- snoc = G.snoc
 
--- infixr 5 ++
--- -- | /O(m+n)/ Concatenate two vectors.
--- (++) :: Vector a -> Vector a -> Vector a
--- {-# INLINE (++) #-}
--- (++) = (G.++)
+infixr 5 ++
+-- | /O(m+n)/ Concatenate two vectors.
+(++) :: Vector a -> Vector a -> Vector a
+{-# INLINE (++) #-}
+v ++ w = unfoldrExactN (length v + length w) (\i -> (if i < length v then v ! i else w ! i, i + 1)) 0
 
--- -- | /O(n)/ Concatenate all vectors in the list.
--- concat :: [Vector a] -> Vector a
--- {-# INLINE concat #-}
--- concat = G.concat
+-- | /O(n)/ Concatenate all vectors in the list.
+-- TODO: this could probably be done in a fusible way
+concat :: [Vector a] -> Vector a
+{-# INLINE concat #-}
+concat [] = empty
+concat (v0:vs0) = unfoldrExactN (Prelude.sum (Prelude.map length (v0:vs0))) step (0, v0, vs0) where
+  step (i, v, vs) 
+      | i < length v = let !x = unsafeIndex v i
+                           !i' = i + 1
+                       in (x, (i', v, vs))
+      | otherwise = let !(v':vs') = vs in step (0, v', vs')
 
 -- -- Monadic initialisation
 -- -- ----------------------
 
--- -- | /O(n)/ Execute the monadic action the given number of times and store the
--- -- results in a vector.
--- replicateM :: Monad m => Int -> m a -> m (Vector a)
--- {-# INLINE replicateM #-}
--- replicateM = G.replicateM
+-- | /O(n)/ Execute the monadic action the given number of times and store the
+-- results in a vector.
+replicateM :: Monad m => Int -> m a -> m (Vector a)
+{-# INLINE replicateM #-}
+replicateM n m = unfoldrExactNM n (\() -> do x <- m; Prelude.return (x, ())) ()
 
--- -- | /O(n)/ Construct a vector of the given length by applying the monadic
--- -- action to each index.
--- generateM :: Monad m => Int -> (Int -> m a) -> m (Vector a)
--- {-# INLINE generateM #-}
--- generateM = G.generateM
+-- | /O(n)/ Construct a vector of the given length by applying the monadic
+-- action to each index.
+generateM :: Monad m => Int -> (Int -> m a) -> m (Vector a)
+{-# INLINE generateM #-}
+generateM n f = iunfoldrNM n (\i () -> do x <- f i; Prelude.return (Just (x, ()))) ()
 
--- -- | /O(n)/ Apply the monadic function \(\max(n - 1, 0)\) times to an initial value, producing a vector
--- -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
--- -- is one less function application than the number of elements in the produced vector.
--- --
--- -- For a non-monadic version, see `iterateN`.
--- --
--- -- @since 0.12.0.0
--- iterateNM :: Monad m => Int -> (a -> m a) -> a -> m (Vector a)
--- {-# INLINE iterateNM #-}
--- iterateNM = G.iterateNM
+-- | /O(n)/ Apply the monadic function \(\max(n - 1, 0)\) times to an initial value, producing a vector
+-- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
+-- is one less function application than the number of elements in the produced vector.
+--
+-- For a non-monadic version, see `iterateN`.
+--
+-- @since 0.12.0.0
+iterateNM :: Monad m => Int -> (a -> m a) -> a -> m (Vector a)
+{-# INLINE iterateNM #-}
+iterateNM n f x0 = unfoldrExactNM n (\x -> do x' <- f x; Prelude.return (x', x')) x0
 
 -- -- -- | Execute the monadic action and freeze the resulting vector.
 -- -- --
@@ -762,18 +776,18 @@ enumFromStepN x0 y n = unfoldrExactN n (\x -> (x, x + y)) x0
 -- {-# INLINE indexed #-}
 -- indexed = G.indexed
 
--- -- Mapping
--- -- -------
+-- Mapping
+-- -------
 
--- -- | /O(n)/ Map a function over a vector.
--- map :: (a -> b) -> Vector a -> Vector b
--- {-# INLINE map #-}
--- map = G.map
+-- | /O(n)/ Map a function over a vector.
+map :: (a -> b) -> Vector a -> Vector b
+{-# INLINE map #-}
+map f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in Identity (Just (f x, ()))) ())
 
--- -- | /O(n)/ Apply a function to every element of a vector and its index.
--- imap :: (Int -> a -> b) -> Vector a -> Vector b
--- {-# INLINE imap #-}
--- imap = G.imap
+-- | /O(n)/ Apply a function to every element of a vector and its index.
+imap :: (Int -> a -> b) -> Vector a -> Vector b
+{-# INLINE imap #-}
+imap f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in Identity (Just (f i x, ()))) ())
 
 -- -- | Map a function over a vector and concatenate the results.
 -- concatMap :: (a -> Vector b) -> Vector a -> Vector b
@@ -787,32 +801,32 @@ enumFromStepN x0 y n = unfoldrExactN n (\x -> (x, x + y)) x0
 -- {-# INLINE iconcatMap #-}
 -- iconcatMap = G.iconcatMap
 
--- -- Monadic mapping
--- -- ---------------
+-- Monadic mapping
+-- ---------------
 
--- -- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
--- -- vector of results.
--- mapM :: Monad m => (a -> m b) -> Vector a -> m (Vector b)
--- {-# INLINE mapM #-}
--- mapM = G.mapM
+-- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
+-- vector of results.
+mapM :: Monad m => (a -> m b) -> Vector a -> m (Vector b)
+{-# INLINE mapM #-}
+mapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f x; Prelude.return (Just (y, ()))) ()
 
--- -- | /O(n)/ Apply the monadic action to every element of a vector and its
--- -- index, yielding a vector of results.
--- imapM :: Monad m => (Int -> a -> m b) -> Vector a -> m (Vector b)
--- {-# INLINE imapM #-}
--- imapM = G.imapM
+-- | /O(n)/ Apply the monadic action to every element of a vector and its
+-- index, yielding a vector of results.
+imapM :: Monad m => (Int -> a -> m b) -> Vector a -> m (Vector b)
+{-# INLINE imapM #-}
+imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f i x; Prelude.return (Just (y, ()))) ()
 
--- -- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
--- -- results.
--- mapM_ :: Monad m => (a -> m b) -> Vector a -> m ()
--- {-# INLINE mapM_ #-}
--- mapM_ = G.mapM_
+-- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
+-- results.
+mapM_ :: Monad m => (a -> m b) -> Vector a -> m ()
+{-# INLINE mapM_ #-}
+mapM_ f v = foldr (\x xs -> x `Prelude.seq` (f x Prelude.>> xs)) (Prelude.return ()) v
 
--- -- | /O(n)/ Apply the monadic action to every element of a vector and its
--- -- index, ignoring the results.
--- imapM_ :: Monad m => (Int -> a -> m b) -> Vector a -> m ()
--- {-# INLINE imapM_ #-}
--- imapM_ = G.imapM_
+-- | /O(n)/ Apply the monadic action to every element of a vector and its
+-- index, ignoring the results.
+imapM_ :: Monad m => (Int -> a -> m b) -> Vector a -> m ()
+{-# INLINE imapM_ #-}
+imapM_ f v = ifoldr (\i x xs -> x `Prelude.seq` (f i x Prelude.>> xs)) (Prelude.return ()) v
 
 -- -- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
 -- -- vector of results. Equivalent to @flip 'mapM'@.
@@ -1279,15 +1293,15 @@ foldl1' k v
     | i < length v - 1 = go (k s (unsafeIndex v i)) (i + 1)
     | otherwise = unsafeIndex v (length v - 1)
 
--- TODO: implement as left-to-right pass
 -- | /O(n)/ Right fold.
 foldr :: (a -> b -> b) -> b -> Vector a -> b
 {-# INLINE foldr #-}
-foldr k z v = go z (length v - 1) where
-  go s i
-    | 0 <= i = go (k (unsafeIndex v i) s) (i - 1)
-    | otherwise = s
+foldr k z v = go 0 where
+  go i
+    | i < length v = k (unsafeIndex v i) (go (i + 1))
+    | otherwise = z
 
+-- TODO: implement as left-to-right pass?
 -- | /O(n)/ Right fold on non-empty vectors.
 foldr1 :: (a -> a -> a) -> Vector a -> a
 {-# INLINE foldr1 #-}
