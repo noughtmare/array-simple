@@ -88,7 +88,7 @@ module Data.Vector (
   -- unsafeAccum, unsafeAccumulate, unsafeAccumulate_,
 
   -- -- ** Permutations
-  -- reverse, backpermute, unsafeBackpermute,
+  reverse, backpermute, unsafeBackpermute,
 
   -- -- ** Safe destructive updates
   -- -- modify,
@@ -103,9 +103,8 @@ module Data.Vector (
   -- concatMap, iconcatMap,
 
   -- -- ** Monadic mapping
-  mapM, imapM, mapM_, 
-  -- imapM_, forM, forM_,
-  -- iforM, iforM_,
+  mapM, imapM, mapM_, imapM_, 
+  forM, forM_, iforM, iforM_,
 
   -- -- ** Zipping
   -- zipWith, zipWith3, zipWith4, zipWith5, zipWith6,
@@ -131,7 +130,10 @@ module Data.Vector (
   -- partition, unstablePartition, partitionWith, span, break, spanR, breakR, groupBy, group,
 
   -- -- ** Searching
-  -- elem, notElem, find, findIndex, findIndexR, findIndices, elemIndex, elemIndices,
+  elem, notElem, find, findIndex, 
+  -- findIndexR, findIndices, 
+  elemIndex, 
+  -- elemIndices,
 
   -- -- * Folding
   foldl, foldl1, foldl', foldl1', foldr, foldr1, foldr', foldr1',
@@ -139,26 +141,32 @@ module Data.Vector (
   foldMap, foldMap',
 
   -- -- ** Specialised folds
-  all, 
-  -- any, and, or,
-  -- sum, product,
-  -- maximum, maximumBy, maximumOn,
-  -- minimum, minimumBy, minimumOn,
+  all, any, and, or,
+  sum, product,
+  maximum, maximumBy, maximumOn,
+  minimum, minimumBy, minimumOn,
   -- minIndex, minIndexBy, maxIndex, maxIndexBy,
 
   -- -- ** Monadic folds
-  -- foldM, ifoldM, foldM', ifoldM',
+  foldM, 
+  -- ifoldM, foldM', ifoldM',
   -- fold1M, fold1M',foldM_, ifoldM_,
   -- foldM'_, ifoldM'_, fold1M_, fold1M'_,
 
   -- -- ** Monadic sequencing
-  -- sequence, sequence_,
+  sequence, sequence_,
 
   -- -- * Scans
-  -- prescanl, prescanl',
-  -- postscanl, postscanl',
-  -- scanl, scanl', scanl1, scanl1',
-  -- iscanl, iscanl',
+  -- prescanl, 
+  prescanl',
+  -- postscanl, 
+  postscanl',
+  -- scanl, 
+  scanl', 
+  -- scanl1, 
+  scanl1',
+  -- iscanl, 
+  iscanl',
   -- prescanr, prescanr',
   -- postscanr, postscanr',
   -- scanr, scanr', scanr1, scanr1',
@@ -169,7 +177,7 @@ module Data.Vector (
   -- traverse_, itraverse_, forA_, iforA_,
 
   -- -- ** Comparisons
-  -- eqBy, cmpBy,
+  eqBy, cmpBy,
 
   -- -- * Conversions
 
@@ -205,11 +213,42 @@ import Prelude
   ( Eq (..), Ord (..), Num (..), Enum, Monoid, Monad, Bool, Ordering(..), Int, Maybe, Either
   , id, (&&), otherwise, error, Maybe (..), Show (..))
 import qualified Prelude
+import Data.Maybe (maybe)
+import qualified Data.Foldable as Foldable
 
 -- | This vector type is strict in its elements.
 -- if you want to store lazy things inside, you can define your own lazy box type:
 -- data Box a = Box a 
 data Vector a = MkVector {-# UNPACK #-} !(Exts.Array# (Strict a))
+
+instance Eq a => Eq (Vector a) where
+  (==) = eqBy (==)
+
+instance Ord a => Ord (Vector a) where
+  compare = cmpBy compare
+
+instance Show a => Show (Vector a) where
+  showsPrec p x = Prelude.showParen (p > 10) (Prelude.showString "fromList " Prelude.. showsPrec 11 (toList x))
+
+instance Prelude.Functor Vector where
+  fmap = map
+
+instance Foldable.Foldable Vector where
+  foldMap = foldMap
+  foldr = foldr
+  foldl = foldl
+  length = length
+  foldl' = foldl'
+  foldr' = foldr'
+  foldr1 = foldr1
+  foldl1 = foldl1
+  elem = elem
+  maximum = maximum
+  minimum = minimum
+  sum = sum
+  product = product
+  toList = toList
+  null = null
 
 -- -- | /O(1)/ Convert an array to a vector.
 -- --
@@ -417,6 +456,7 @@ unfoldrNM :: (Monad m) => Int -> (b -> m (Maybe (a, b))) -> b -> m (Vector a)
 {-# INLINE unfoldrNM #-}
 unfoldrNM n f x = iunfoldrNM n (\_ -> f) x
 
+-- basically all you need to construct a vector
 iunfoldrNM :: (Monad m) => Int -> (Int -> b -> m (Maybe (a, b))) -> b -> m (Vector a)
 {-# INLINE iunfoldrNM #-}
 iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
@@ -430,7 +470,7 @@ iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
       _ -> do
         may <- f (Exts.I# i) x
         case may of
-          Just (y, x') ->
+          Just (!y, !x') ->
             let !s' = Exts.writeArray# marr i (Strict y) s
             in go s' x' (i Exts.+# 1#)
           Nothing -> 
@@ -446,6 +486,8 @@ iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
 unfoldrExactNM :: (Monad m) => Int -> (b -> m (a, b)) -> b -> m (Vector a)
 {-# INLINE unfoldrExactNM #-}
 unfoldrExactNM n f x0 = unfoldrNM n (Prelude.fmap Just Prelude.. f) x0
+
+-- TODO: SPECIALIZE prevents inlining, reconsider all uses of it.
 
 -- This rule makes sure that fmap Just above gets optimized properly after unfoldrNM 
 -- is inlined:
@@ -484,7 +526,7 @@ unfoldrExactNM n f x0 = unfoldrNM n (Prelude.fmap Just Prelude.. f) x0
 -- > enumFromN 5 3 = <5,6,7>
 enumFromN :: Num a => a -> Int -> Vector a
 {-# INLINE enumFromN #-}
-enumFromN x0 n = unfoldrExactN n (\x -> (x, x + 1)) x0
+enumFromN x0 n = unfoldrExactN n (\ x -> (x, x + 1)) x0
 
 -- | /O(n)/ Yield a vector of the given length, containing the values @x@, @x+y@,
 -- @x+y+y@ etc. This operations is usually more efficient than 'enumFromThenTo'.
@@ -492,7 +534,7 @@ enumFromN x0 n = unfoldrExactN n (\x -> (x, x + 1)) x0
 -- > enumFromStepN 1 2 5 = <1,3,5,7,9>
 enumFromStepN :: Num a => a -> a -> Int -> Vector a
 {-# INLINE enumFromStepN #-}
-enumFromStepN x0 y n = unfoldrExactN n (\x -> (x, x + y)) x0
+enumFromStepN x0 y n = unfoldrExactN n (\ x -> (x, x + y)) x0
 
 -- -- | /O(n)/ Enumerate values from @x@ to @y@.
 -- --
@@ -535,7 +577,7 @@ concat :: [Vector a] -> Vector a
 {-# INLINE concat #-}
 concat [] = empty
 concat (v0:vs0) = unfoldrExactN (Prelude.sum (Prelude.map length (v0:vs0))) step (0, v0, vs0) where
-  step (i, v, vs) 
+  step (!i, !v, !vs) 
       | i < length v = let !x = unsafeIndex v i
                            !i' = i + 1
                        in (x, (i', v, vs))
@@ -549,12 +591,14 @@ concat (v0:vs0) = unfoldrExactN (Prelude.sum (Prelude.map length (v0:vs0))) step
 replicateM :: Monad m => Int -> m a -> m (Vector a)
 {-# INLINE replicateM #-}
 replicateM n m = unfoldrExactNM n (\() -> do x <- m; Prelude.return (x, ())) ()
+{-# SPECIALIZE replicateM :: Int -> Prelude.IO a -> Prelude.IO (Vector a) #-}
 
 -- | /O(n)/ Construct a vector of the given length by applying the monadic
 -- action to each index.
 generateM :: Monad m => Int -> (Int -> m a) -> m (Vector a)
 {-# INLINE generateM #-}
 generateM n f = iunfoldrNM n (\i () -> do x <- f i; Prelude.return (Just (x, ()))) ()
+{-# SPECIALIZE generateM :: Int -> (Int -> Prelude.IO a) -> Prelude.IO (Vector a) #-}
 
 -- | /O(n)/ Apply the monadic function \(\max(n - 1, 0)\) times to an initial value, producing a vector
 -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
@@ -738,45 +782,47 @@ iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; Prelude.return (x' `Prelud
 -- -- Permutations
 -- -- ------------
 
--- -- | /O(n)/ Reverse a vector.
--- reverse :: Vector a -> Vector a
--- {-# INLINE reverse #-}
--- reverse = G.reverse
+-- | /O(n)/ Reverse a vector.
+reverse :: Vector a -> Vector a
+{-# INLINE reverse #-}
+reverse v = generate (length v) (\i -> unsafeIndex v (length v - 1 - i))
 
--- -- | /O(n)/ Yield the vector obtained by replacing each element @i@ of the
--- -- index vector by @xs'!'i@. This is equivalent to @'map' (xs'!') is@, but is
--- -- often much more efficient.
+-- | /O(n)/ Yield the vector obtained by replacing each element @i@ of the
+-- index vector by @xs'!'i@. This is equivalent to @'map' (xs'!') is@, but is
+-- often much more efficient.
+--
+-- > backpermute <a,b,c,d> <0,3,2,3,1,0> = <a,d,c,d,b,a>
+backpermute :: Vector a -> Vector Int -> Vector a
+{-# INLINE backpermute #-}
+backpermute vx vi = generate (length vi) (\i -> vx ! unsafeIndex vi i)
+
+-- | Same as 'backpermute', but without bounds checking.
+unsafeBackpermute :: Vector a -> Vector Int -> Vector a
+{-# INLINE unsafeBackpermute #-}
+unsafeBackpermute vx vi = generate (length vi) (\i -> unsafeIndex vx (unsafeIndex vi i))
+
+-- -- Safe destructive updates
+-- -- ------------------------
+
+-- -- | Apply a destructive operation to a vector. The operation may be
+-- -- performed in place if it is safe to do so and will modify a copy of the
+-- -- vector otherwise (see 'Data.Vector.Generic.New.New' for details).
 -- --
--- -- > backpermute <a,b,c,d> <0,3,2,3,1,0> = <a,d,c,d,b,a>
--- backpermute :: Vector a -> Vector Int -> Vector a
--- {-# INLINE backpermute #-}
--- backpermute = G.backpermute
-
--- -- | Same as 'backpermute', but without bounds checking.
--- unsafeBackpermute :: Vector a -> Vector Int -> Vector a
--- {-# INLINE unsafeBackpermute #-}
--- unsafeBackpermute = G.unsafeBackpermute
-
--- -- -- Safe destructive updates
--- -- -- ------------------------
-
--- -- -- | Apply a destructive operation to a vector. The operation may be
--- -- -- performed in place if it is safe to do so and will modify a copy of the
--- -- -- vector otherwise (see 'Data.Vector.Generic.New.New' for details).
--- -- --
--- -- -- ==== __Examples__
--- -- --
--- -- -- >>> import qualified Data.Vector as V
--- -- -- >>> import qualified Data.Vector.Mutable as MV
--- -- -- >>> V.modify (\v -> MV.write v 0 'x') $ V.replicate 4 'a'
--- -- -- "xaaa"
--- -- modify :: (forall s. MVector s a -> ST s ()) -> Vector a -> Vector a
--- -- {-# INLINE modify #-}
--- -- modify p = G.modify p
+-- -- ==== __Examples__
+-- --
+-- -- >>> import qualified Data.Vector as V
+-- -- >>> import qualified Data.Vector.Mutable as MV
+-- -- >>> V.modify (\v -> MV.write v 0 'x') $ V.replicate 4 'a'
+-- -- "xaaa"
+-- modify :: (forall s. MVector s a -> ST s ()) -> Vector a -> Vector a
+-- {-# INLINE modify #-}
+-- modify p = G.modify p
 
 -- -- Indexing
 -- -- --------
 
+-- TODO: this is probably not worth it without fusion:
+--
 -- -- | /O(n)/ Pair each element in a vector with its index.
 -- indexed :: Vector a -> Vector (Int,a)
 -- {-# INLINE indexed #-}
@@ -786,6 +832,8 @@ iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; Prelude.return (x' `Prelud
 -- -------
 
 -- | /O(n)/ Map a function over a vector.
+-- Warning: does not fuse, this will allocate a new copy of the vector.
+-- Consider using explicit streaming (TODO) if you compose this with other combinators.
 map :: (a -> b) -> Vector a -> Vector b
 {-# INLINE map #-}
 map f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in Identity (Just (f x, ()))) ())
@@ -815,52 +863,60 @@ imap f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i 
 mapM :: Monad m => (a -> m b) -> Vector a -> m (Vector b)
 {-# INLINE mapM #-}
 mapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f x; Prelude.return (Just (y, ()))) ()
+{-# SPECIALIZE mapM :: (a -> Prelude.IO b) -> Vector a -> Prelude.IO (Vector b) #-}
 
 -- | /O(n)/ Apply the monadic action to every element of a vector and its
 -- index, yielding a vector of results.
 imapM :: Monad m => (Int -> a -> m b) -> Vector a -> m (Vector b)
 {-# INLINE imapM #-}
 imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f i x; Prelude.return (Just (y, ()))) ()
+{-# SPECIALIZE imapM :: (Int -> a -> Prelude.IO b) -> Vector a -> Prelude.IO (Vector b) #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
 -- results.
 mapM_ :: Monad m => (a -> m b) -> Vector a -> m ()
 {-# INLINE mapM_ #-}
 mapM_ f v = foldr (\ !x xs -> f x Prelude.>> xs) (Prelude.return ()) v
+{-# SPECIALIZE mapM_ :: (a -> Prelude.IO b) -> Vector a -> Prelude.IO () #-}
 
 -- | /O(n)/ Apply the monadic action to every element of a vector and its
 -- index, ignoring the results.
 imapM_ :: Monad m => (Int -> a -> m b) -> Vector a -> m ()
 {-# INLINE imapM_ #-}
 imapM_ f v = ifoldr (\i x xs -> x `Prelude.seq` (f i x Prelude.>> xs)) (Prelude.return ()) v
+{-# SPECIALIZE imapM_ :: (Int -> a -> Prelude.IO b) -> Vector a -> Prelude.IO () #-}
 
--- -- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
--- -- vector of results. Equivalent to @flip 'mapM'@.
--- forM :: Monad m => Vector a -> (a -> m b) -> m (Vector b)
--- {-# INLINE forM #-}
--- forM = G.forM
+-- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
+-- vector of results. Equivalent to @flip 'mapM'@.
+forM :: Monad m => Vector a -> (a -> m b) -> m (Vector b)
+{-# INLINE forM #-}
+forM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f x)
+{-# SPECIALIZE forM :: Vector a -> (a -> Prelude.IO b) -> Prelude.IO (Vector b) #-}
 
--- -- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
--- -- results. Equivalent to @flip 'mapM_'@.
--- forM_ :: Monad m => Vector a -> (a -> m b) -> m ()
--- {-# INLINE forM_ #-}
--- forM_ = G.forM_
+-- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
+-- results. Equivalent to @flip 'mapM_'@.
+forM_ :: Monad m => Vector a -> (a -> m b) -> m ()
+{-# INLINE forM_ #-}
+forM_ v f = foldr (\x m -> f x Prelude.>> m) (Prelude.return ()) v
+{-# SPECIALIZE forM_ :: Vector a -> (a -> Prelude.IO b) -> Prelude.IO () #-}
 
--- -- | /O(n)/ Apply the monadic action to all elements of the vector and their indices, yielding a
--- -- vector of results. Equivalent to @'flip' 'imapM'@.
--- --
--- -- @since 0.12.2.0
--- iforM :: Monad m => Vector a -> (Int -> a -> m b) -> m (Vector b)
--- {-# INLINE iforM #-}
--- iforM = G.iforM
+-- | /O(n)/ Apply the monadic action to all elements of the vector and their indices, yielding a
+-- vector of results. Equivalent to @'flip' 'imapM'@.
+--
+-- @since 0.12.2.0
+iforM :: Monad m => Vector a -> (Int -> a -> m b) -> m (Vector b)
+{-# INLINE iforM #-}
+iforM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f i x)
+{-# SPECIALIZE iforM :: Vector a -> (Int -> a -> Prelude.IO b) -> Prelude.IO (Vector b) #-}
 
--- -- | /O(n)/ Apply the monadic action to all elements of the vector and their indices
--- -- and ignore the results. Equivalent to @'flip' 'imapM_'@.
--- --
--- -- @since 0.12.2.0
--- iforM_ :: Monad m => Vector a -> (Int -> a -> m b) -> m ()
--- {-# INLINE iforM_ #-}
--- iforM_ = G.iforM_
+-- | /O(n)/ Apply the monadic action to all elements of the vector and their indices
+-- and ignore the results. Equivalent to @'flip' 'imapM_'@.
+--
+-- @since 0.12.2.0
+iforM_ :: Monad m => Vector a -> (Int -> a -> m b) -> m ()
+{-# INLINE iforM_ #-}
+iforM_ v f = ifoldr (\i x m -> f i x Prelude.>> m) (Prelude.return ()) v
+{-# SPECIALIZE iforM_ :: Vector a -> (Int -> a -> Prelude.IO b) -> Prelude.IO () #-}
 
 -- -- Zipping
 -- -- -------
@@ -1209,29 +1265,29 @@ imapM_ f v = ifoldr (\i x xs -> x `Prelude.seq` (f i x Prelude.>> xs)) (Prelude.
 -- -- Searching
 -- -- ---------
 
--- infix 4 `elem`
--- -- | /O(n)/ Check if the vector contains an element.
--- elem :: Eq a => a -> Vector a -> Bool
--- {-# INLINE elem #-}
--- elem = G.elem
+infix 4 `elem`
+-- | /O(n)/ Check if the vector contains an element.
+elem :: Eq a => a -> Vector a -> Bool
+{-# INLINE elem #-}
+elem z = foldr (\x xs -> x == z Prelude.|| xs) Prelude.False
 
--- infix 4 `notElem`
--- -- | /O(n)/ Check if the vector does not contain an element (inverse of 'elem').
--- notElem :: Eq a => a -> Vector a -> Bool
--- {-# INLINE notElem #-}
--- notElem = G.notElem
+infix 4 `notElem`
+-- | /O(n)/ Check if the vector does not contain an element (inverse of 'elem').
+notElem :: Eq a => a -> Vector a -> Bool
+{-# INLINE notElem #-}
+notElem z v = Prelude.not (elem z v)
 
--- -- | /O(n)/ Yield 'Just' the first element matching the predicate or 'Nothing'
--- -- if no such element exists.
--- find :: (a -> Bool) -> Vector a -> Maybe a
--- {-# INLINE find #-}
--- find = G.find
+-- | /O(n)/ Yield 'Just' the first element matching the predicate or 'Nothing'
+-- if no such element exists.
+find :: (a -> Bool) -> Vector a -> Maybe a
+{-# INLINE find #-}
+find f = foldr (\x xs -> if f x then Just x else xs) Nothing
 
--- -- | /O(n)/ Yield 'Just' the index of the first element matching the predicate
--- -- or 'Nothing' if no such element exists.
--- findIndex :: (a -> Bool) -> Vector a -> Maybe Int
--- {-# INLINE findIndex #-}
--- findIndex = G.findIndex
+-- | /O(n)/ Yield 'Just' the index of the first element matching the predicate
+-- or 'Nothing' if no such element exists.
+findIndex :: (a -> Bool) -> Vector a -> Maybe Int
+{-# INLINE findIndex #-}
+findIndex f = ifoldr (\i x xs -> if f x then Just i else xs) Nothing
 
 -- -- | /O(n)/ Yield 'Just' the index of the /last/ element matching the predicate
 -- -- or 'Nothing' if no such element exists.
@@ -1247,12 +1303,12 @@ imapM_ f v = ifoldr (\i x xs -> x `Prelude.seq` (f i x Prelude.>> xs)) (Prelude.
 -- {-# INLINE findIndices #-}
 -- findIndices = G.findIndices
 
--- -- | /O(n)/ Yield 'Just' the index of the first occurrence of the given element or
--- -- 'Nothing' if the vector does not contain the element. This is a specialised
--- -- version of 'findIndex'.
--- elemIndex :: Eq a => a -> Vector a -> Maybe Int
--- {-# INLINE elemIndex #-}
--- elemIndex = G.elemIndex
+-- | /O(n)/ Yield 'Just' the index of the first occurrence of the given element or
+-- 'Nothing' if the vector does not contain the element. This is a specialised
+-- version of 'findIndex'.
+elemIndex :: Eq a => a -> Vector a -> Maybe Int
+{-# INLINE elemIndex #-}
+elemIndex x = findIndex (== x)
 
 -- -- | /O(n)/ Yield the indices of all occurrences of the given element in
 -- -- ascending order. This is a specialised version of 'findIndices'.
@@ -1268,7 +1324,7 @@ foldl :: (a -> b -> a) -> a -> Vector b -> a
 {-# INLINE foldl #-}
 foldl k z v = go z 0 where
   go s i
-    | i < length v = go (k s (unsafeIndex v i)) (i + 1)
+    | i < length v = let !x = unsafeIndex v i in go (k s x) (i + 1)
     | otherwise = s
 
 -- | /O(n)/ Left fold on non-empty vectors.
@@ -1278,16 +1334,18 @@ foldl1 k v
   | null v = error "foldr1 applied to empty vector"
   | otherwise = go (unsafeIndex v 0) 1 where
   go s i
-    | i < length v - 1 = go (k s (unsafeIndex v i)) (i + 1)
+    | i < length v - 1 = let !x = unsafeIndex v i in go (k s x) (i + 1)
     | otherwise = unsafeIndex v (length v - 1)
 
 -- | /O(n)/ Left fold with strict accumulator.
 foldl' :: (a -> b -> a) -> a -> Vector b -> a
 {-# INLINE foldl' #-}
-foldl' k z v = go z 0 where
-  go !s i
-    | i < length v = go (k s (unsafeIndex v i)) (i + 1)
-    | otherwise = s
+foldl' k z = \v -> 
+  let
+    go !s i
+      | i < length v = let !x = unsafeIndex v i in go (k s x) (i + 1)
+      | otherwise = s
+  in go z 0
 
 -- | /O(n)/ Left fold on non-empty vectors with strict accumulator.
 foldl1' :: (a -> a -> a) -> Vector a -> a
@@ -1296,16 +1354,18 @@ foldl1' k v
   | null v = error "foldr1 applied to empty vector"
   | otherwise = go (unsafeIndex v 0) 1 where
   go !s i
-    | i < length v - 1 = go (k s (unsafeIndex v i)) (i + 1)
+    | i < length v - 1 = let !x = unsafeIndex v i in go (k s x) (i + 1)
     | otherwise = unsafeIndex v (length v - 1)
 
 -- | /O(n)/ Right fold.
 foldr :: (a -> b -> b) -> b -> Vector a -> b
 {-# INLINE foldr #-}
-foldr k z v = go 0 where
-  go i
-    | i < length v = k (unsafeIndex v i) (go (i + 1))
-    | otherwise = z
+foldr k z = \v -> 
+  let
+    go i
+      | i < length v = let !x = unsafeIndex v i in k x (go (i + 1))
+      | otherwise = z
+  in go 0
 
 -- TODO: implement as left-to-right pass?
 -- | /O(n)/ Right fold on non-empty vectors.
@@ -1315,7 +1375,7 @@ foldr1 k v
   | null v = error "foldr1 applied to empty vector"
   | otherwise = go (unsafeIndex v (length v - 1)) (length v - 2) where
   go s i
-    | 0 <= i = go (k (unsafeIndex v i) s) (i - 1)
+    | 0 <= i = let !x = unsafeIndex v i in go (k x s) (i - 1)
     | otherwise = s
 
 -- | /O(n)/ Right fold with a strict accumulator.
@@ -1323,7 +1383,7 @@ foldr' :: (a -> b -> b) -> b -> Vector a -> b
 {-# INLINE foldr' #-}
 foldr' k z v = go z (length v - 1) where
   go !s i
-    | 0 <= i = go (k (unsafeIndex v i) s) (i - 1)
+    | 0 <= i = let !x = unsafeIndex v i in go (k x s) (i - 1)
     | otherwise = s
 
 -- | /O(n)/ Right fold on non-empty vectors with strict accumulator.
@@ -1333,7 +1393,7 @@ foldr1' k v
   | null v = error "foldr1 applied to empty vector"
   | otherwise = go (unsafeIndex v (length v - 1)) (length v - 2) where
   go !s i
-    | 0 <= i = go (k (unsafeIndex v i) s) (i - 1)
+    | 0 <= i = let !x = unsafeIndex v i in go (k x s) (i - 1)
     | otherwise = s
 
 -- | /O(n)/ Left fold using a function applied to each element and its index.
@@ -1341,7 +1401,7 @@ ifoldl :: (a -> Int -> b -> a) -> a -> Vector b -> a
 {-# INLINE ifoldl #-}
 ifoldl k z v = go z 0 where
   go s i
-    | i < length v = go (k s i (unsafeIndex v i)) (i + 1)
+    | i < length v = let !x = unsafeIndex v i in go (k s i x) (i + 1)
     | otherwise = s
 
 -- | /O(n)/ Left fold with strict accumulator using a function applied to each element
@@ -1350,16 +1410,16 @@ ifoldl' :: (a -> Int -> b -> a) -> a -> Vector b -> a
 {-# INLINE ifoldl' #-}
 ifoldl' k z v = go z 0 where
   go !s i
-    | i < length v = go (k s i (unsafeIndex v i)) (i + 1)
+    | i < length v = let !x = unsafeIndex v i in go (k s i x) (i + 1)
     | otherwise = s
 
 -- | /O(n)/ Right fold using a function applied to each element and its index.
 ifoldr :: (Int -> a -> b -> b) -> b -> Vector a -> b
 {-# INLINE ifoldr #-}
-ifoldr k z v = go z (length v - 1) where
-  go s i
-    | 0 <= i = go (k i (unsafeIndex v i) s) (i - 1)
-    | otherwise = s
+ifoldr k z v = go 0 where
+  go i
+    | i < length v = let !x = unsafeIndex v i in k i x (go (i - 1))
+    | otherwise = z
 
 -- | /O(n)/ Right fold with strict accumulator using a function applied to each
 -- element and its index.
@@ -1367,7 +1427,7 @@ ifoldr' :: (Int -> a -> b -> b) -> b -> Vector a -> b
 {-# INLINE ifoldr' #-}
 ifoldr' k z v = go z (length v - 1) where
   go !s i
-    | 0 <= i = go (k i (unsafeIndex v i) s) (i - 1)
+    | 0 <= i = let !x = unsafeIndex v i in go (k i x s) (i - 1)
     | otherwise = s
 
 -- | /O(n)/ Map each element of the structure to a monoid and combine
@@ -1406,178 +1466,192 @@ foldMap' f = foldr' (\x m -> f x Prelude.<> m) Prelude.mempty
 -- True
 all :: (a -> Bool) -> Vector a -> Bool
 {-# INLINE all #-}
-all f v = go 0 where
-  go i
-    | i < length v = f (unsafeIndex v i) && go (i + 1)
-    | otherwise = Prelude.True
+all f v = foldr (\x xs -> f x Prelude.&& xs) Prelude.True v
 
--- -- | /O(n)/ Check if any element satisfies the predicate.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.any even $ V.fromList [1, 3, 7]
--- -- False
--- -- >>> V.any even $ V.fromList [3, 2, 13]
--- -- True
--- -- >>> V.any even (V.empty :: V.Vector Int)
--- -- False
--- any :: (a -> Bool) -> Vector a -> Bool
--- {-# INLINE any #-}
--- any = G.any
+-- | /O(n)/ Check if any element satisfies the predicate.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.any even $ V.fromList [1, 3, 7]
+-- False
+-- >>> V.any even $ V.fromList [3, 2, 13]
+-- True
+-- >>> V.any even (V.empty :: V.Vector Int)
+-- False
+any :: (a -> Bool) -> Vector a -> Bool
+{-# INLINE any #-}
+any f = foldr (\x xs -> f x Prelude.|| xs) Prelude.False
 
--- -- | /O(n)/ Check if all elements are 'True'.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.and $ V.fromList [True, False]
--- -- False
--- -- >>> V.and V.empty
--- -- True
--- and :: Vector Bool -> Bool
--- {-# INLINE and #-}
--- and = G.and
+-- | /O(n)/ Check if all elements are 'True'.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.and $ V.fromList [True, False]
+-- False
+-- >>> V.and V.empty
+-- True
+and :: Vector Bool -> Bool
+{-# INLINE and #-}
+and = foldr (Prelude.&&) Prelude.True
 
--- -- | /O(n)/ Check if any element is 'True'.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.or $ V.fromList [True, False]
--- -- True
--- -- >>> V.or V.empty
--- -- False
--- or :: Vector Bool -> Bool
--- {-# INLINE or #-}
--- or = G.or
+-- | /O(n)/ Check if any element is 'True'.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.or $ V.fromList [True, False]
+-- True
+-- >>> V.or V.empty
+-- False
+or :: Vector Bool -> Bool
+{-# INLINE or #-}
+or = foldr (Prelude.||) Prelude.False
 
--- -- | /O(n)/ Compute the sum of the elements.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.sum $ V.fromList [300,20,1]
--- -- 321
--- -- >>> V.sum (V.empty :: V.Vector Int)
--- -- 0
--- sum :: Num a => Vector a -> a
--- {-# INLINE sum #-}
--- sum = G.sum
+-- | /O(n)/ Compute the sum of the elements.
+-- Warning: storing numbers (e.g. Int or Double) in a Vector
+-- is inefficient because of redundant indirections.
+-- Consider using unboxed vectors (TODO) instead.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.sum $ V.fromList [300,20,1]
+-- 321
+-- >>> V.sum (V.empty :: V.Vector Int)
+-- 0
+sum :: Num a => Vector a -> a
+{-# INLINE sum #-}
+sum = foldl' (+) 0
 
--- -- | /O(n)/ Compute the product of the elements.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.product $ V.fromList [1,2,3,4]
--- -- 24
--- -- >>> V.product (V.empty :: V.Vector Int)
--- -- 1
--- product :: Num a => Vector a -> a
--- {-# INLINE product #-}
--- product = G.product
+-- | /O(n)/ Compute the product of the elements.
+-- Warning: storing numbers (e.g. Int or Double) in a Vector
+-- is inefficient because of redundant indirections.
+-- Consider using unboxed vectors (TODO) instead.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.product $ V.fromList [1,2,3,4]
+-- 24
+-- >>> V.product (V.empty :: V.Vector Int)
+-- 1
+product :: Num a => Vector a -> a
+{-# INLINE product #-}
+product = foldl' (*) 1
 
--- -- | /O(n)/ Yield the maximum element of the vector. The vector may not be
--- -- empty. In case of a tie, the first occurrence wins.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.maximum $ V.fromList [2, 1]
--- -- 2
--- -- >>> import Data.Semigroup
--- -- >>> V.maximum $ V.fromList [Arg 1 'a', Arg 2 'b']
--- -- Arg 2 'b'
--- -- >>> V.maximum $ V.fromList [Arg 1 'a', Arg 1 'b']
--- -- Arg 1 'a'
--- maximum :: Ord a => Vector a -> a
--- {-# INLINE maximum #-}
--- maximum = G.maximum
+-- | /O(n)/ Yield the maximum element of the vector. The vector may not be
+-- empty. In case of a tie, the first occurrence wins.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.maximum $ V.fromList [2, 1]
+-- 2
+-- >>> import Data.Semigroup
+-- >>> V.maximum $ V.fromList [Arg 1 'a', Arg 2 'b']
+-- Arg 2 'b'
+-- >>> V.maximum $ V.fromList [Arg 1 'a', Arg 1 'b']
+-- Arg 1 'a'
+maximum :: Ord a => Vector a -> a
+{-# INLINE maximum #-}
+maximum = foldl1' max
 
--- -- | /O(n)/ Yield the maximum element of the vector according to the
--- -- given comparison function. The vector may not be empty. In case of
--- -- a tie, the first occurrence wins. This behavior is different from
--- -- 'Data.List.maximumBy' which returns the last tie.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import Data.Ord
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.maximumBy (comparing fst) $ V.fromList [(2,'a'), (1,'b')]
--- -- (2,'a')
--- -- >>> V.maximumBy (comparing fst) $ V.fromList [(1,'a'), (1,'b')]
--- -- (1,'a')
--- maximumBy :: (a -> a -> Ordering) -> Vector a -> a
--- {-# INLINE maximumBy #-}
--- maximumBy = G.maximumBy
+-- | /O(n)/ Yield the maximum element of the vector according to the
+-- given comparison function. The vector may not be empty. In case of
+-- a tie, the first occurrence wins. This behavior is different from
+-- 'Data.List.maximumBy' which returns the last tie.
+--
+-- ==== __Examples__
+--
+-- >>> import Data.Ord
+-- >>> import qualified Data.Vector as V
+-- >>> V.maximumBy (comparing fst) $ V.fromList [(2,'a'), (1,'b')]
+-- (2,'a')
+-- >>> V.maximumBy (comparing fst) $ V.fromList [(1,'a'), (1,'b')]
+-- (1,'a')
+maximumBy :: (a -> a -> Ordering) -> Vector a -> a
+{-# INLINE maximumBy #-}
+maximumBy f = foldl1' (\x y -> case f x y of GT -> x; _ -> y)
 
--- -- | /O(n)/ Yield the maximum element of the vector by comparing the results
--- -- of a key function on each element. In case of a tie, the first occurrence
--- -- wins. The vector may not be empty.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.maximumOn fst $ V.fromList [(2,'a'), (1,'b')]
--- -- (2,'a')
--- -- >>> V.maximumOn fst $ V.fromList [(1,'a'), (1,'b')]
--- -- (1,'a')
--- --
--- -- @since 0.13.0.0
--- maximumOn :: Ord b => (a -> b) -> Vector a -> a
--- {-# INLINE maximumOn #-}
--- maximumOn = G.maximumOn
+-- | /O(n)/ Yield the maximum element of the vector by comparing the results
+-- of a key function on each element. In case of a tie, the first occurrence
+-- wins. The vector may not be empty.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.maximumOn fst $ V.fromList [(2,'a'), (1,'b')]
+-- (2,'a')
+-- >>> V.maximumOn fst $ V.fromList [(1,'a'), (1,'b')]
+-- (1,'a')
+--
+-- @since 0.13.0.0
+maximumOn :: Ord b => (a -> b) -> Vector a -> a
+{-# INLINE maximumOn #-}
+maximumOn f v = maybe (Prelude.error "maximumOn: empty vector") Prelude.fst (foldl' (\s x ->
+  case s of
+    Just (!y, !fy) ->
+      let !fx = f x in if fx > fy then Just (x, fx) else Just (y, fy)
+    Nothing -> let !fx = f x in Just (x, fx)
+  ) Nothing v)
+  
 
--- -- | /O(n)/ Yield the minimum element of the vector. The vector may not be
--- -- empty. In case of a tie, the first occurrence wins.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.minimum $ V.fromList [2, 1]
--- -- 1
--- -- >>> import Data.Semigroup
--- -- >>> V.minimum $ V.fromList [Arg 2 'a', Arg 1 'b']
--- -- Arg 1 'b'
--- -- >>> V.minimum $ V.fromList [Arg 1 'a', Arg 1 'b']
--- -- Arg 1 'a'
--- minimum :: Ord a => Vector a -> a
--- {-# INLINE minimum #-}
--- minimum = G.minimum
+-- | /O(n)/ Yield the minimum element of the vector. The vector may not be
+-- empty. In case of a tie, the first occurrence wins.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.minimum $ V.fromList [2, 1]
+-- 1
+-- >>> import Data.Semigroup
+-- >>> V.minimum $ V.fromList [Arg 2 'a', Arg 1 'b']
+-- Arg 1 'b'
+-- >>> V.minimum $ V.fromList [Arg 1 'a', Arg 1 'b']
+-- Arg 1 'a'
+minimum :: Ord a => Vector a -> a
+{-# INLINE minimum #-}
+minimum = foldl1' min
 
--- -- | /O(n)/ Yield the minimum element of the vector according to the
--- -- given comparison function. The vector may not be empty. In case of
--- -- a tie, the first occurrence wins.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import Data.Ord
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.minimumBy (comparing fst) $ V.fromList [(2,'a'), (1,'b')]
--- -- (1,'b')
--- -- >>> V.minimumBy (comparing fst) $ V.fromList [(1,'a'), (1,'b')]
--- -- (1,'a')
--- minimumBy :: (a -> a -> Ordering) -> Vector a -> a
--- {-# INLINE minimumBy #-}
--- minimumBy = G.minimumBy
+-- | /O(n)/ Yield the minimum element of the vector according to the
+-- given comparison function. The vector may not be empty. In case of
+-- a tie, the first occurrence wins.
+--
+-- ==== __Examples__
+--
+-- >>> import Data.Ord
+-- >>> import qualified Data.Vector as V
+-- >>> V.minimumBy (comparing fst) $ V.fromList [(2,'a'), (1,'b')]
+-- (1,'b')
+-- >>> V.minimumBy (comparing fst) $ V.fromList [(1,'a'), (1,'b')]
+-- (1,'a')
+minimumBy :: (a -> a -> Ordering) -> Vector a -> a
+{-# INLINE minimumBy #-}
+minimumBy f = foldl1' (\x y -> case f x y of LT -> x; _ -> y)
 
--- -- | /O(n)/ Yield the minimum element of the vector by comparing the results
--- -- of a key function on each element. In case of a tie, the first occurrence
--- -- wins. The vector may not be empty.
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.minimumOn fst $ V.fromList [(2,'a'), (1,'b')]
--- -- (1,'b')
--- -- >>> V.minimumOn fst $ V.fromList [(1,'a'), (1,'b')]
--- -- (1,'a')
--- --
--- -- @since 0.13.0.0
--- minimumOn :: Ord b => (a -> b) -> Vector a -> a
--- {-# INLINE minimumOn #-}
--- minimumOn = G.minimumOn
+-- | /O(n)/ Yield the minimum element of the vector by comparing the results
+-- of a key function on each element. In case of a tie, the first occurrence
+-- wins. The vector may not be empty.
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.minimumOn fst $ V.fromList [(2,'a'), (1,'b')]
+-- (1,'b')
+-- >>> V.minimumOn fst $ V.fromList [(1,'a'), (1,'b')]
+-- (1,'a')
+--
+-- @since 0.13.0.0
+minimumOn :: Ord b => (a -> b) -> Vector a -> a
+{-# INLINE minimumOn #-}
+minimumOn f v = maybe (Prelude.error "minimumOn: empty vector") Prelude.fst (foldl' (\s x ->
+  case s of
+    Just (!y, !fy) ->
+      let !fx = f x in if fx < fy then Just (x, fx) else Just (y, fy)
+    Nothing -> let !fx = f x in Just (x, fx)
+  ) Nothing v)
 
 -- -- | /O(n)/ Yield the index of the maximum element of the vector. The vector
 -- -- may not be empty.
@@ -1625,10 +1699,13 @@ all f v = go 0 where
 -- -- Monadic folds
 -- -- -------------
 
--- -- | /O(n)/ Monadic fold.
--- foldM :: Monad m => (a -> b -> m a) -> a -> Vector b -> m a
--- {-# INLINE foldM #-}
--- foldM = G.foldM
+-- | /O(n)/ Monadic fold.
+foldM :: Monad m => (a -> b -> m a) -> a -> Vector b -> m a
+{-# INLINE foldM #-}
+-- TODO: this does not generate optimal Core/STG. i
+-- I guess we'll need to implement these instead of the non-monadic folds.
+foldM k z = foldl' (\m y -> do x <- m; k x y) (Prelude.return z)
+{-# SPECIALIZE foldM :: (a -> b -> Prelude.IO a) -> a -> Vector b -> Prelude.IO a #-}
 
 -- -- | /O(n)/ Monadic fold using a function applied to each element and its index.
 -- ifoldM :: Monad m => (a -> Int -> b -> m a) -> a -> Vector b -> m a
@@ -1693,17 +1770,19 @@ all f v = go 0 where
 -- -- ------------------
 
 -- -- | Evaluate each action and collect the results.
--- sequence :: Monad m => Vector (m a) -> m (Vector a)
--- {-# INLINE sequence #-}
--- sequence = G.sequence
+sequence :: Monad m => Vector (m a) -> m (Vector a)
+{-# INLINE sequence #-}
+sequence v = generateM (length v) (\i -> unsafeIndex v i)
+{-# SPECIALIZE sequence :: Vector (Prelude.IO a) -> Prelude.IO (Vector a) #-}
 
--- -- | Evaluate each action and discard the results.
--- sequence_ :: Monad m => Vector (m a) -> m ()
--- {-# INLINE sequence_ #-}
--- sequence_ = G.sequence_
+-- | Evaluate each action and discard the results.
+sequence_ :: Monad m => Vector (m a) -> m ()
+{-# INLINE sequence_ #-}
+sequence_ = foldr (\m xs -> m Prelude.>> xs) (Prelude.return ())
+{-# SPECIALIZE sequence_ :: Vector (Prelude.IO a) -> Prelude.IO () #-}
 
--- -- Scans
--- -- -----
+-- Scans
+-- -----
 
 -- -- | /O(n)/ Left-to-right prescan.
 -- --
@@ -1720,10 +1799,10 @@ all f v = go 0 where
 -- {-# INLINE prescanl #-}
 -- prescanl = G.prescanl
 
--- -- | /O(n)/ Left-to-right prescan with strict accumulator.
--- prescanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE prescanl' #-}
--- prescanl' = G.prescanl'
+-- | /O(n)/ Left-to-right prescan with strict accumulator.
+prescanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE prescanl' #-}
+prescanl' k z v = unIdentity (iunfoldrNM (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in Identity (Just (s, s'))) z)
 
 -- -- | /O(n)/ Left-to-right postscan.
 -- --
@@ -1740,10 +1819,10 @@ all f v = go 0 where
 -- {-# INLINE postscanl #-}
 -- postscanl = G.postscanl
 
--- -- | /O(n)/ Left-to-right postscan with strict accumulator.
--- postscanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE postscanl' #-}
--- postscanl' = G.postscanl'
+-- | /O(n)/ Left-to-right postscan with strict accumulator.
+postscanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE postscanl' #-}
+postscanl' k z v = unIdentity (iunfoldrNM (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in Identity (Just (s', s'))) z)
 
 -- -- | /O(n)/ Left-to-right scan.
 -- --
@@ -1760,10 +1839,10 @@ all f v = go 0 where
 -- {-# INLINE scanl #-}
 -- scanl = G.scanl
 
--- -- | /O(n)/ Left-to-right scan with strict accumulator.
--- scanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE scanl' #-}
--- scanl' = G.scanl'
+-- | /O(n)/ Left-to-right scan with strict accumulator.
+scanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE scanl' #-}
+scanl' k z v = unIdentity (iunfoldrNM (length v + 1) (\i s -> if i == length v then Identity (Just (s,s)) else let !x = unsafeIndex v i; s' = k s x in Identity (Just (s, s'))) z)
 
 -- -- | /O(n)/ Left-to-right scan over a vector with its index.
 -- --
@@ -1772,12 +1851,12 @@ all f v = go 0 where
 -- {-# INLINE iscanl #-}
 -- iscanl = G.iscanl
 
--- -- | /O(n)/ Left-to-right scan over a vector (strictly) with its index.
--- --
--- -- @since 0.12.0.0
--- iscanl' :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE iscanl' #-}
--- iscanl' = G.iscanl'
+-- | /O(n)/ Left-to-right scan over a vector (strictly) with its index.
+--
+-- @since 0.12.0.0
+iscanl' :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE iscanl' #-}
+iscanl' k z v = unIdentity (iunfoldrNM (length v + 1) (\i s -> if i == length v then Identity (Just (s,s)) else let !x = unsafeIndex v i; s' = k i s x in Identity (Just (s, s'))) z)
 
 -- -- | /O(n)/ Initial-value free left-to-right scan over a vector.
 -- --
@@ -1800,22 +1879,27 @@ all f v = go 0 where
 -- {-# INLINE scanl1 #-}
 -- scanl1 = G.scanl1
 
--- -- | /O(n)/ Initial-value free left-to-right scan over a vector with a strict accumulator.
--- --
--- -- Note: Since 0.13, application of this to an empty vector no longer
--- -- results in an error; instead it produces an empty vector.
--- --
--- -- ==== __Examples__
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.scanl1' min $ V.fromListN 5 [4,2,4,1,3]
--- -- [4,2,2,1,1]
--- -- >>> V.scanl1' max $ V.fromListN 5 [1,3,2,5,4]
--- -- [1,3,3,5,5]
--- -- >>> V.scanl1' min (V.empty :: V.Vector Int)
--- -- []
--- scanl1' :: (a -> a -> a) -> Vector a -> Vector a
--- {-# INLINE scanl1' #-}
--- scanl1' = G.scanl1'
+-- | /O(n)/ Initial-value free left-to-right scan over a vector with a strict accumulator.
+--
+-- Note: Since 0.13, application of this to an empty vector no longer
+-- results in an error; instead it produces an empty vector.
+--
+-- ==== __Examples__
+-- >>> import qualified Data.Vector as V
+-- >>> V.scanl1' min $ V.fromListN 5 [4,2,4,1,3]
+-- [4,2,2,1,1]
+-- >>> V.scanl1' max $ V.fromListN 5 [1,3,2,5,4]
+-- [1,3,3,5,5]
+-- >>> V.scanl1' min (V.empty :: V.Vector Int)
+-- []
+scanl1' :: (a -> a -> a) -> Vector a -> Vector a
+{-# INLINE scanl1' #-}
+scanl1' k v = unIdentity (iunfoldrNM (length v) (\i s -> Identity (Just (
+  let !x = unsafeIndex v i in
+  case s of
+    Nothing -> (x,Just x)
+    Just y -> let z = k y x in (z, Just z)
+  ))) Nothing)
 
 -- -- | /O(n)/ Right-to-left prescan.
 -- --
@@ -1903,23 +1987,23 @@ all f v = go 0 where
 -- -- Comparisons
 -- -- ------------------------
 
--- -- | /O(n)/ Check if two vectors are equal using the supplied equality
--- -- predicate.
--- --
--- -- @since 0.12.2.0
--- eqBy :: (a -> b -> Bool) -> Vector a -> Vector b -> Bool
--- {-# INLINE eqBy #-}
--- eqBy = G.eqBy
+-- | /O(n)/ Check if two vectors are equal using the supplied equality
+-- predicate.
+--
+-- @since 0.12.2.0
+eqBy :: (a -> b -> Bool) -> Vector a -> Vector b -> Bool
+{-# INLINE eqBy #-}
+eqBy eq v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in eq x y Prelude.&& xs) Prelude.True v
 
--- -- | /O(n)/ Compare two vectors using the supplied comparison function for
--- -- vector elements. Comparison works the same as for lists.
--- --
--- -- > cmpBy compare == compare
--- --
--- -- @since 0.12.2.0
--- cmpBy :: (a -> b -> Ordering) -> Vector a -> Vector b -> Ordering
--- {-# INLINE cmpBy #-}
--- cmpBy = G.cmpBy
+-- | /O(n)/ Compare two vectors using the supplied comparison function for
+-- vector elements. Comparison works the same as for lists (lexicographically).
+--
+-- > cmpBy compare == compare
+--
+-- @since 0.12.2.0
+cmpBy :: (a -> b -> Ordering) -> Vector a -> Vector b -> Ordering
+{-# INLINE cmpBy #-}
+cmpBy cmp v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in cmp x y Prelude.<> xs) Prelude.EQ v
 
 -- -- Conversions - Lists
 -- -- ------------------------
@@ -1930,7 +2014,7 @@ toList :: Vector a -> [a]
 toList v = Exts.build (\c n ->
   let 
     go i
-      | i < length v = unsafeIndex v i `c` go (i + 1)
+      | i < length v = let !x = unsafeIndex v i in x `c` go (i + 1)
       | otherwise = n
   in go 0)
 
