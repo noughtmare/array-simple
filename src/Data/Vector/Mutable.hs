@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
+{-# LANGUAGE UnliftedDatatypes #-}
 -- |
 -- Module      : Data.Vector.Mutable
 -- Copyright   : (c) Roman Leshchinskiy 2008-2010
@@ -90,6 +91,7 @@ import Data.Elevator
 import qualified GHC.Exts as GHC
 import qualified GHC.ST as GHC
 import Control.Monad.ST
+import qualified Unsafe.Coerce
 
 import Prelude( Eq (..), Ord (..), Bool, Ordering(..), Int, Maybe, (<$>), error, otherwise, (&&), (||), pure, Maybe (..), Num (..))
 
@@ -234,6 +236,9 @@ new (GHC.I# n) x = GHC.ST (\s ->
     (# s', UnsafeSTVector marr #)
   })
 
+type UnliftedUnit :: UnliftedType
+data UnliftedUnit = U
+
 -- | Create a mutable vector of the given length. The vector elements
 -- are set to an undefined value, so accessing them will cause a segfault at best.
 --
@@ -241,7 +246,7 @@ new (GHC.I# n) x = GHC.ST (\s ->
 unsafeNew :: Int -> ST s (STVector s a)
 {-# INLINE unsafeNew #-}
 unsafeNew (GHC.I# n) = GHC.ST (\s ->
-  case GHC.newSmallArray# n (GHC.unsafeCoerce# ()) s of { (# s', marr #) ->
+  case GHC.newSmallArray# n (Unsafe.Coerce.unsafeCoerceUnlifted U) s of { (# s', marr #) ->
     (# s', UnsafeSTVector marr #)
   })
 

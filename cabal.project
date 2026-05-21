@@ -3,4 +3,4 @@ packages: .
 -- Always build tests
 tests: True
 
-optimization: True
+optimization: 2

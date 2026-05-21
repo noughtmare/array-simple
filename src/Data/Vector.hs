@@ -224,6 +224,7 @@ import Prelude
 import qualified Prelude
 import Data.Maybe (maybe)
 import qualified Data.Foldable as Foldable
+import qualified Unsafe.Coerce
 
 -- | This vector type is strict in its elements.
 -- if you want to store lazy things inside, you can define your own lazy box type:
@@ -374,7 +375,7 @@ unsafeSlice i n v = runST (do
 -- | /O(1)/ The empty vector.
 empty :: Vector a
 {-# INLINE empty #-}
-empty = replicate 0 (GHC.unsafeCoerce# ())
+empty = replicate 0 (Unsafe.Coerce.unsafeCoerce ())
 
 -- | /O(1)/ A vector with exactly one element.
 singleton :: a -> Vector a
@@ -390,7 +391,7 @@ replicate n x = runST (do m <- M.new n x; unsafeFreeze m)
 -- each index.
 generate :: Int -> (Int -> a) -> Vector a
 {-# INLINE generate #-}
-generate n f = iunfoldrN n (\i _ -> Just (f i, ())) ()
+generate n f = iunfoldrExactN n (\i _ -> let !x = f i in (x, ())) ()
 
 -- | /O(n)/ Apply the function \(\max(n - 1, 0)\) times to an initial value, producing a vector
 -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
