@@ -390,7 +390,7 @@ replicate n x = runST (do m <- M.new n x; unsafeFreeze m)
 -- each index.
 generate :: Int -> (Int -> a) -> Vector a
 {-# INLINE generate #-}
-generate n f = iunfoldrN n (\i () -> Just (f i, ())) ()
+generate n f = iunfoldrN n (\i _ -> Just (f i, ())) ()
 
 -- | /O(n)/ Apply the function \(\max(n - 1, 0)\) times to an initial value, producing a vector
 -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
@@ -862,12 +862,12 @@ unsafeBackpermute vx vi = generate (length vi) (\i -> unsafeIndex vx (unsafeInde
 -- Consider using explicit streaming (TODO) if you compose this with other combinators.
 map :: (a -> b) -> Vector a -> Vector b
 {-# INLINE map #-}
-map f v = iunfoldrExactN (length v) (\i () -> let !x = unsafeIndex v i in (f x, ())) ()
+map f v = imap (\_ -> f) v
 
 -- | /O(n)/ Apply a function to every element of a vector and its index.
 imap :: (Int -> a -> b) -> Vector a -> Vector b
 {-# INLINE imap #-}
-imap f v = iunfoldrExactN (length v) (\i () -> let !x = unsafeIndex v i in (f i x, ())) ()
+imap f v = generate (length v) (\i -> f i (unsafeIndex v i))
 
 -- -- | Map a function over a vector and concatenate the results.
 -- concatMap :: (a -> Vector b) -> Vector a -> Vector b
