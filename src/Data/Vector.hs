@@ -230,6 +230,21 @@ import qualified Data.Foldable as Foldable
 -- data Box a = Box a 
 data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.SmallArray# (Strict a))
 
+-- Note [SmallArray vs Array]
+-- --------------------------
+--
+-- The difference between the two is that Array contains a "card table"
+-- to keep track of mutated pointers in the array (just the top-level)
+-- to speed up certain parts of garbage collection.
+-- 
+-- This is not affected by thunks at all and we expect users to mainly
+-- use immutable arrays. Our arrays are only mutable while they are being 
+-- constructed. So the card table is not of much use to us.
+--
+-- The card table has overhead: 1 word to store the length and furthermore
+-- 1 byte per 128 entries. For large arrays this overhead is negligible, but 
+-- we also foresee using our arrays for 0-20 elements.
+
 instance Eq a => Eq (Vector a) where
   (==) = eqBy (==)
 
