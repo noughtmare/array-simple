@@ -93,7 +93,7 @@ import Control.Monad.ST
 
 import Prelude( Eq (..), Ord (..), Bool, Ordering(..), Int, Maybe, (<$>), error, otherwise, (&&), (||), pure, Maybe (..), Num (..))
 
-data STVector s a = UnsafeSTVector (GHC.MutableArray# s (Strict a))
+data STVector s a = UnsafeSTVector {-# UNPACK #-} !(GHC.SmallMutableArray# s (Strict a))
 
 
 
@@ -130,7 +130,7 @@ data STVector s a = UnsafeSTVector (GHC.MutableArray# s (Strict a))
 -- | Length of the mutable vector.
 length :: STVector s a -> Int
 {-# INLINE length #-}
-length (UnsafeSTVector m) = GHC.I# (GHC.sizeofMutableArray# m)
+length (UnsafeSTVector m) = GHC.I# (GHC.sizeofSmallMutableArray# m)
 
 -- | Check whether the vector is empty.
 null :: STVector s a -> Bool
@@ -230,7 +230,7 @@ null m = length m == 0
 new :: Int -> a -> ST s (STVector s a)
 {-# INLINE new #-}
 new (GHC.I# n) x = GHC.ST (\s -> 
-  case GHC.newArray# n (Strict x) s of { (# s', marr #) ->
+  case GHC.newSmallArray# n (Strict x) s of { (# s', marr #) ->
     (# s', UnsafeSTVector marr #)
   })
 
@@ -241,7 +241,7 @@ new (GHC.I# n) x = GHC.ST (\s ->
 unsafeNew :: Int -> ST s (STVector s a)
 {-# INLINE unsafeNew #-}
 unsafeNew (GHC.I# n) = GHC.ST (\s ->
-  case GHC.newArray# n (GHC.unsafeCoerce# ()) s of { (# s', marr #) ->
+  case GHC.newSmallArray# n (GHC.unsafeCoerce# ()) s of { (# s', marr #) ->
     (# s', UnsafeSTVector marr #)
   })
 
@@ -279,7 +279,7 @@ unsafeNew (GHC.I# n) = GHC.ST (\s ->
 clone :: STVector s a -> ST s (STVector s a)
 {-# INLINE clone #-}
 clone (UnsafeSTVector marr) = GHC.ST (\s -> 
-  case GHC.cloneMutableArray# marr 0# (GHC.sizeofMutableArray# marr) s of
+  case GHC.cloneSmallMutableArray# marr 0# (GHC.sizeofSmallMutableArray# marr) s of
     (# s', marr' #) -> (# s', UnsafeSTVector marr' #))
 
 
@@ -414,14 +414,14 @@ write m i x
 unsafeRead :: STVector s a -> Int -> ST s a
 {-# INLINE unsafeRead #-}
 unsafeRead (UnsafeSTVector m) (GHC.I# i) = GHC.ST (\s -> 
-  case GHC.readArray# m i s of
+  case GHC.readSmallArray# m i s of
     (# s', Strict x #) -> (# s', x #))
 
 -- | Replace the element at the given position. No bounds checks are performed.
 unsafeWrite :: STVector s a -> Int -> a -> ST s ()
 {-# INLINE unsafeWrite #-}
 unsafeWrite (UnsafeSTVector m) (GHC.I# i) x = GHC.ST (\s ->
-  (# GHC.writeArray# m i (Strict x) s , () #))
+  (# GHC.writeSmallArray# m i (Strict x) s , () #))
 
 -- -- | Modify the element at the given position. No bounds checks are performed.
 -- unsafeModify :: STVector s a -> (a -> a) -> Int -> ST s ()

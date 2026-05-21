@@ -62,6 +62,7 @@ module Data.Vector (
   -- -- ** Unfolding
   -- -- unfoldr, 
   unfoldrN, unfoldrExactN,
+  iunfoldrN, iunfoldrExactN,
   -- -- unfoldrM, 
   -- unfoldrNST, unfoldrExactNST,
   -- -- constructN, constructrN,
@@ -227,7 +228,7 @@ import qualified Data.Foldable as Foldable
 -- | This vector type is strict in its elements.
 -- if you want to store lazy things inside, you can define your own lazy box type:
 -- data Box a = Box a 
-data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.Array# (Strict a))
+data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.SmallArray# (Strict a))
 
 instance Eq a => Eq (Vector a) where
   (==) = eqBy (==)
@@ -278,7 +279,7 @@ instance Foldable.Foldable Vector where
 -- | /O(1)/ Yield the length of the vector.
 length :: Vector a -> Int
 {-# INLINE length #-}
-length (UnsafeVector arr) = GHC.I# (GHC.sizeofArray# arr)
+length (UnsafeVector arr) = GHC.I# (GHC.sizeofSmallArray# arr)
 
 -- | /O(1)/ Test whether a vector is empty.
 null :: Vector a -> Bool
@@ -315,7 +316,7 @@ last v = v ! (length v - 1)
 -- | /O(1)/ Unsafe indexing without bounds checking.
 unsafeIndex :: Vector a -> Int -> a
 {-# INLINE unsafeIndex #-}
-unsafeIndex (UnsafeVector arr) (GHC.I# i) = let (# Strict x #) = GHC.indexArray# arr i in x
+unsafeIndex (UnsafeVector arr) (GHC.I# i) = let (# Strict x #) = GHC.indexSmallArray# arr i in x
 
 -- | /O(1)/ First element, without checking if the vector is empty.
 unsafeHead :: Vector a -> a
@@ -478,7 +479,7 @@ iunfoldrN n f x0 = runST (do
       | i < n =
         case f i x of
           Just (!y, !x') -> do 
-            M.write m i y
+            M.unsafeWrite m i y
             go (i + 1) x'
           Nothing -> freeze (M.unsafeTakeL i (M.whole m))
       | otherwise = unsafeFreeze m
@@ -2054,31 +2055,45 @@ toList v = GHC.build (\c n ->
 -- @
 -- fromListN n xs = 'fromList' ('take' n xs)
 -- @
+-- fromListN :: Int -> [a] -> Vector a
+-- {-# INLINE fromListN #-}
+-- fromListN @a (GHC.I# n) xs = GHC.runRW# (\s0 ->
+--   let
+--     marr :: GHC.MutableArray# GHC.RealWorld (Strict a)
+--     !(# s1, marr #) = GHC.newArray# n (GHC.unsafeCoerce# ()) s0
+--     endNormal s = 
+--       let !(# _, arr' #) = GHC.unsafeFreezeArray# marr s
+--       in UnsafeVector arr'
+--   in Prelude.foldr
+--     (\x go -> GHC.oneShot (\(MkFromListNSt (# s, i #)) ->
+--       case i GHC.<# n of
+--         0# -> endNormal s
+--         _ ->
+--           let !s' = GHC.writeArray# marr i (Strict x) s
+--           in go (MkFromListNSt (# s', i GHC.+# 1# #))))
+--     (\(MkFromListNSt (# s, i #)) ->
+--       case i GHC.==# n of
+--         0# -> 
+--           let !(# _, arr' #) = GHC.freezeArray# marr 0# i s
+--           in UnsafeVector arr'
+--         _ -> endNormal s)
+--     xs 
+--     (MkFromListNSt (# s1, 0# #)))
+
+-- data FromListNSt = MkFromListNSt (# GHC.State# GHC.RealWorld, GHC.Int# #)
+
 fromListN :: Int -> [a] -> Vector a
 {-# INLINE fromListN #-}
-fromListN @a (GHC.I# n) xs = GHC.runRW# (\s0 ->
-  let
-    marr :: GHC.MutableArray# GHC.RealWorld (Strict a)
-    !(# s1, marr #) = GHC.newArray# n (GHC.unsafeCoerce# ()) s0
-    endNormal s = 
-      let !(# _, arr' #) = GHC.unsafeFreezeArray# marr s
-      in UnsafeVector arr'
-  in Prelude.foldr
-    (\x go -> GHC.oneShot (\(MkFromListNSt (# s, i #)) ->
-      case i GHC.<# n of
-        0# -> endNormal s
-        _ ->
-          let !s' = GHC.writeArray# marr i (Strict x) s
-          in go (MkFromListNSt (# s', i GHC.+# 1# #))))
-    (\(MkFromListNSt (# s, i #)) ->
-      case i GHC.==# n of
-        0# -> 
-          let !(# _, arr' #) = GHC.freezeArray# marr 0# i s
-          in UnsafeVector arr'
-        _ -> endNormal s)
-    xs (MkFromListNSt (# s1, 0# #)))
-
-data FromListNSt = MkFromListNSt (# GHC.State# GHC.RealWorld, GHC.Int# #)
+fromListN n xs = runST (do
+  m <- M.unsafeNew n
+  Prelude.foldr 
+    (\x go -> GHC.oneShot (\i -> 
+      if i < n
+        then do M.unsafeWrite m i x; go (i + 1)
+        else unsafeFreeze m))
+    (\i -> if i == n then unsafeFreeze m else freeze (M.unsafeTakeL i (M.whole m)))
+    xs
+    0)
 
 -- -- Applicative
 -- -- -----------
@@ -2179,7 +2194,7 @@ data FromListNSt = MkFromListNSt (# GHC.State# GHC.RealWorld, GHC.Int# #)
 unsafeFreeze :: M.STVector s a -> ST s (Vector a)
 {-# INLINE unsafeFreeze #-}
 unsafeFreeze (M.UnsafeSTVector marr) = GHC.ST (\s ->
-  case GHC.unsafeFreezeArray# marr s of
+  case GHC.unsafeFreezeSmallArray# marr s of
     (# s', arr #) -> (# s', UnsafeVector arr #))
 
 data VectorSlice a = UnsafeVectorSlice {-# UNPACK #-} !(Vector a) !Int !Int
@@ -2203,7 +2218,7 @@ unsafeDropR n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m off (len - n)
 freeze :: M.STVectorSlice s a -> ST s (Vector a)
 {-# INLINE freeze #-}
 freeze (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# off) (GHC.I# len)) = GHC.ST (\s ->
-  case GHC.freezeArray# marr off len s of
+  case GHC.freezeSmallArray# marr off len s of
     (# s', arr #) -> (# s', UnsafeVector arr #))
 
 -- -- | /O(1)/ Unsafely convert an immutable vector to a mutable one
@@ -2241,14 +2256,14 @@ freeze (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# off) (GHC.I# len))
 thaw :: VectorSlice a -> ST s (M.STVector s a)
 {-# INLINE thaw #-}
 thaw (UnsafeVectorSlice (UnsafeVector arr) (GHC.I# i) (GHC.I# n)) = GHC.ST (\s -> 
-  case GHC.thawArray# arr i n s of
+  case GHC.thawSmallArray# arr i n s of
     (# s', marr #) -> (# s', M.UnsafeSTVector marr #))
 
 -- | /O(n)/ Copy an immutable vector into a mutable one.
 unsafeCopy :: VectorSlice a -> M.STVectorSlice s a -> ST s ()
 {-# INLINE unsafeCopy #-}
 unsafeCopy (UnsafeVectorSlice (UnsafeVector arr) (GHC.I# offv) _) (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# offm) (GHC.I# len)) = GHC.ST (\s -> 
-  (# GHC.copyArray# arr offv marr offm len s , () #))
+  (# GHC.copySmallArray# arr offv marr offm len s , () #))
 
 -- | /O(n)/ Copy an immutable vector into a mutable one. The two vectors must
 -- have the same length.
