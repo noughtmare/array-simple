@@ -56,14 +56,14 @@ module Data.Vector (
   empty, singleton, replicate, generate, iterateN,
 
   -- ** Monadic initialisation
-  replicateM, generateM, iterateNM, 
+  -- replicateST, generateST, iterateNST, 
   -- -- create, createT,
 
   -- -- ** Unfolding
   -- -- unfoldr, 
   unfoldrN, unfoldrExactN,
   -- -- unfoldrM, 
-  unfoldrNM, unfoldrExactNM,
+  -- unfoldrNST, unfoldrExactNST,
   -- -- constructN, constructrN,
 
   -- -- ** Enumeration
@@ -103,8 +103,10 @@ module Data.Vector (
   -- concatMap, iconcatMap,
 
   -- -- ** Monadic mapping
-  mapM, imapM, mapM_, imapM_, 
-  forM, forM_, iforM, iforM_,
+  -- mapM, imapM, 
+  mapM_, imapM_, 
+  -- forM, iforM,
+  forM_, iforM_,
 
   -- -- ** Zipping
   -- zipWith, zipWith3, zipWith4, zipWith5, zipWith6,
@@ -154,7 +156,7 @@ module Data.Vector (
   -- foldM'_, ifoldM'_, fold1M_, fold1M'_,
 
   -- -- ** Monadic sequencing
-  sequence, sequence_,
+  -- sequence, sequence_,
 
   -- -- * Scans
   -- prescanl, 
@@ -192,26 +194,32 @@ module Data.Vector (
   -- -- ** Other vector types
   -- G.convert,
 
-  -- -- ** Mutable vectors
-  -- freeze, thaw, copy, unsafeFreeze, unsafeThaw, unsafeCopy
+  -- ** Mutable vectors
+  freeze, unsafeFreeze, thaw, copy, unsafeCopy,
+  -- unsafeThaw, 
+
+  -- ** Slice
+  VectorSlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
-import Control.Applicative (Applicative)
+-- import Control.Applicative (Applicative)
 -- import Data.Primitive.Array
 -- import qualified Data.Traversable as Traversable
 -- import Data.Vector.Mutable.Unsafe ( MVector )
 -- import Data.Vector.Unsafe
 -- import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Mutable as M
 
-import qualified GHC.Exts as Exts
+import qualified GHC.Exts as GHC
 import Data.Elevator (Strict (Strict))
 
 -- import Control.Monad.Primitive
-import GHC.ST (ST (..), runST)
+import qualified GHC.ST as GHC
+import Control.Monad.ST
 
 import Prelude
-  ( Eq (..), Ord (..), Num (..), Enum, Monoid, Monad, Bool, Ordering(..), Int, Maybe, Either
-  , id, (&&), otherwise, error, Maybe (..), Show (..))
+  ( Eq (..), Ord (..), Num (..), Monoid, Monad (..), Bool, Ordering(..), Int, Maybe
+  , (&&), otherwise, error, Maybe (..), Show (..), Either (..), IO)
 import qualified Prelude
 import Data.Maybe (maybe)
 import qualified Data.Foldable as Foldable
@@ -219,7 +227,7 @@ import qualified Data.Foldable as Foldable
 -- | This vector type is strict in its elements.
 -- if you want to store lazy things inside, you can define your own lazy box type:
 -- data Box a = Box a 
-data Vector a = MkVector {-# UNPACK #-} !(Exts.Array# (Strict a))
+data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.Array# (Strict a))
 
 instance Eq a => Eq (Vector a) where
   (==) = eqBy (==)
@@ -255,14 +263,14 @@ instance Foldable.Foldable Vector where
 -- -- @since 0.12.2.0
 -- fromArray :: Array a -> Vector a
 -- {-# INLINE fromArray #-}
--- fromArray arr = MkVector arr
+-- fromArray arr = UnsafeVector arr
 
 -- -- | /O(n)/ Convert a vector to an array.
 -- --
 -- -- @since 0.12.2.0
 -- toArray :: Vector a -> Array a
 -- {-# INLINE toArray #-}
--- toArray (MkVector arr) = arr
+-- toArray (UnsafeVector arr) = arr
 
 -- Length information
 -- ------------------
@@ -270,7 +278,7 @@ instance Foldable.Foldable Vector where
 -- | /O(1)/ Yield the length of the vector.
 length :: Vector a -> Int
 {-# INLINE length #-}
-length (MkVector arr) = Exts.I# (Exts.sizeofArray# arr)
+length (UnsafeVector arr) = GHC.I# (GHC.sizeofArray# arr)
 
 -- | /O(1)/ Test whether a vector is empty.
 null :: Vector a -> Bool
@@ -307,7 +315,7 @@ last v = v ! (length v - 1)
 -- | /O(1)/ Unsafe indexing without bounds checking.
 unsafeIndex :: Vector a -> Int -> a
 {-# INLINE unsafeIndex #-}
-unsafeIndex (MkVector arr) (Exts.I# i) = let (# Strict x #) = Exts.indexArray# arr i in x
+unsafeIndex (UnsafeVector arr) (GHC.I# i) = let (# Strict x #) = GHC.indexArray# arr i in x
 
 -- | /O(1)/ First element, without checking if the vector is empty.
 unsafeHead :: Vector a -> a
@@ -321,9 +329,6 @@ unsafeLast v = unsafeIndex v (length v - 1)
 
 -- Extracting subvectors (slicing)
 -- -------------------------------
-
-unI# :: Int -> Exts.Int#
-unI# (Exts.I# x) = x
 
 -- | /O(n)/ Yield a slice of the vector by copying it. The vector must
 -- contain at least @i+n@ elements.
@@ -342,13 +347,10 @@ unsafeSlice :: Int   -- ^ @i@ starting index
             -> Int   -- ^ @n@ length
             -> Vector a
             -> Vector a
-unsafeSlice @a (Exts.I# off) (Exts.I# len) v@(MkVector arr) = runST (\ @s -> ST (\s0 ->
-  let
-    marr :: Exts.MutableArray# s (Strict a)
-    !(# s1, marr #) = Exts.newArray# (unI# (length v)) (Exts.unsafeCoerce# ()) s0
-    !s2 = Exts.copyArray# arr 0# marr off len s1
-    !(# s3, arr' #) = Exts.unsafeFreezeArray# marr s2
-  in (# s3, MkVector arr' #)))
+unsafeSlice i n v = runST (do
+  m <- M.unsafeNew n
+  unsafeCopy (unsafeDropL i (whole v)) (M.whole m)
+  unsafeFreeze m)
 
 -- Initialisation
 -- --------------
@@ -356,7 +358,7 @@ unsafeSlice @a (Exts.I# off) (Exts.I# len) v@(MkVector arr) = runST (\ @s -> ST 
 -- | /O(1)/ The empty vector.
 empty :: Vector a
 {-# INLINE empty #-}
-empty = replicate 0 (Exts.unsafeCoerce# ())
+empty = replicate 0 (GHC.unsafeCoerce# ())
 
 -- | /O(1)/ A vector with exactly one element.
 singleton :: a -> Vector a
@@ -366,18 +368,13 @@ singleton = replicate 1
 -- | /O(n)/ A vector of the given length with the same value in each position.
 replicate :: Int -> a -> Vector a
 {-# INLINE replicate #-}
-replicate @a (Exts.I# n) x = runST (\ @s -> ST (\s0 ->
-  let
-    marr :: Exts.MutableArray# s (Strict a)
-    !(# s1, marr #) = Exts.newArray# n (Strict x) s0
-    !(# s2, arr' #) = Exts.unsafeFreezeArray# marr s1
-  in (# s2, MkVector arr' #)))
+replicate n x = runST (do m <- M.new n x; unsafeFreeze m)
 
 -- | /O(n)/ Construct a vector of the given length by applying the function to
 -- each index.
 generate :: Int -> (Int -> a) -> Vector a
 {-# INLINE generate #-}
-generate n f = unIdentity (iunfoldrNM n (\i () -> Identity (Just (f i, ()))) ())
+generate n f = iunfoldrN n (\i () -> Just (f i, ())) ()
 
 -- | /O(n)/ Apply the function \(\max(n - 1, 0)\) times to an initial value, producing a vector
 -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
@@ -419,7 +416,7 @@ iterateN n f x0 = unfoldrExactN n (\x -> (x, f x)) x0
 -- > unfoldrN 3 (\n -> Just (n,n-1)) 10 = <10,9,8>
 unfoldrN :: Int -> (b -> Maybe (a, b)) -> b -> Vector a
 {-# INLINE unfoldrN #-}
-unfoldrN n f x = unIdentity (unfoldrNM n (Identity Prelude.. f) x)
+unfoldrN n f x = iunfoldrN n (\_ -> f) x
 
 -- | /O(n)/ Construct a vector with exactly @n@ elements by repeatedly applying
 -- the generator function to a seed. The generator function yields the
@@ -432,73 +429,86 @@ unfoldrExactN  :: Int -> (b -> (a, b)) -> b -> Vector a
 {-# INLINE unfoldrExactN #-}
 unfoldrExactN n f x = unfoldrN n (Just Prelude.. f) x
 
--- Quick ad-hoc identity monad for pure versions of monadic operations.
-newtype Identity a = Identity { unIdentity :: a } deriving Prelude.Functor
-instance Applicative Identity where
-  pure = Identity
-  Identity f <*> Identity x = Identity (f x)
-instance Monad Identity where
-  Identity x >>= k = k x
+-- -- -- | /O(n)/ Construct a vector by repeatedly applying the monadic
+-- -- -- generator function to a seed. The generator function yields 'Just'
+-- -- -- the next element and the new seed or 'Nothing' if there are no more
+-- -- -- elements.
+-- -- unfoldrM :: (Monad m) => (b -> m (Maybe (a, b))) -> b -> m (Vector a)
+-- -- {-# INLINE unfoldrM #-}
+-- -- unfoldrM = G.unfoldrM
 
 -- -- | /O(n)/ Construct a vector by repeatedly applying the monadic
 -- -- generator function to a seed. The generator function yields 'Just'
 -- -- the next element and the new seed or 'Nothing' if there are no more
 -- -- elements.
--- unfoldrM :: (Monad m) => (b -> m (Maybe (a, b))) -> b -> m (Vector a)
--- {-# INLINE unfoldrM #-}
--- unfoldrM = G.unfoldrM
+-- unfoldrNST :: Int -> (b -> ST s (Maybe (a, b))) -> b -> ST s (Vector a)
+-- {-# INLINE unfoldrNST #-}
+-- unfoldrNST n f x = iunfoldrNST n (\_ -> f) x
 
--- | /O(n)/ Construct a vector by repeatedly applying the monadic
--- generator function to a seed. The generator function yields 'Just'
--- the next element and the new seed or 'Nothing' if there are no more
--- elements.
-unfoldrNM :: (Monad m) => Int -> (b -> m (Maybe (a, b))) -> b -> m (Vector a)
-{-# INLINE unfoldrNM #-}
-unfoldrNM n f x = iunfoldrNM n (\_ -> f) x
+-- data While s m b = forall a. MkWhile (ST s a) (a -> m (ST s (Either b a))) 
+
+-- whileST :: Monad m => (forall s. While s m b) -> m b
+-- {-# INLINE whileST #-}
+-- whileST (MkWhile (GHC.ST x0) step) = GHC.runRW# (\s -> case x0 s of (# s', x0' #) -> go x0' s') where
+--   go x s = do
+--     GHC.ST x' <- step x
+--     case x' s of
+--       (# _, Left x'' #) -> return x''
+--       (# s', Right x'' #) -> go x'' s'
+
+-- data Generate s f a = forall b c. MkGen (ST s (b, Int, c)) (Int -> b -> f (ST s (c -> c))) (b -> c -> ST s a)
+
+-- generateST :: Applicative f => (forall s. Generate s f a) -> f a
+-- generateST (MkGen (GHC.ST start) step end) = GHC.runRW# (\s0 -> do
+--   case start s0 of { (# s', (x, n, y) #) -> do
+--   let
+--     go i = _ (step i x)
+--   go 0
+--   case end x of { GHC.ST t -> 
+--   _
+--   }})
 
 -- basically all you need to construct a vector
-iunfoldrNM :: (Monad m) => Int -> (Int -> b -> m (Maybe (a, b))) -> b -> m (Vector a)
-{-# INLINE iunfoldrNM #-}
-iunfoldrNM @_ @_ @a (Exts.I# n) f x0 = Exts.runRW# (\s0 ->
+iunfoldrN :: Int -> (Int -> b -> Maybe (a, b)) -> b -> Vector a
+{-# INLINE iunfoldrN #-}
+iunfoldrN n f x0 = runST (do
+  m <- M.unsafeNew n
   let
-    marr :: Exts.MutableArray# Exts.RealWorld (Strict a)
-    !(# s1, marr #) = Exts.newArray# n (Exts.unsafeCoerce# ()) s0
-    go s !x i = case i Exts.<# n of
-      0# ->
-        let !(# _, arr' #) = Exts.unsafeFreezeArray# marr s
-        in Prelude.return (MkVector arr')
-      _ -> do
-        may <- f (Exts.I# i) x
-        case may of
-          Just (!y, !x') ->
-            let !s' = Exts.writeArray# marr i (Strict y) s
-            in go s' x' (i Exts.+# 1#)
-          Nothing -> 
-            let !(# _, arr' #) = Exts.freezeArray# marr 0# i s 
-            in Prelude.return (MkVector arr')
-  in go s1 x0 0#)
+    go i x
+      | i < n =
+        case f i x of
+          Just (!y, !x') -> do 
+            M.write m i y
+            go (i + 1) x'
+          Nothing -> freeze (M.unsafeTakeL i (M.whole m))
+      | otherwise = unsafeFreeze m
+  go 0 x0)
 
--- | /O(n)/ Construct a vector with exactly @n@ elements by repeatedly
--- applying the monadic generator function to a seed. The generator
--- function yields the next element and the new seed.
---
--- @since 0.12.2.0
-unfoldrExactNM :: (Monad m) => Int -> (b -> m (a, b)) -> b -> m (Vector a)
-{-# INLINE unfoldrExactNM #-}
-unfoldrExactNM n f x0 = unfoldrNM n (Prelude.fmap Just Prelude.. f) x0
+iunfoldrExactN :: Int -> (Int -> b -> (a, b)) -> b -> Vector a
+{-# INLINE iunfoldrExactN #-}
+iunfoldrExactN n f x0 = iunfoldrN n (\i x -> Just (f i x)) x0
+
+-- -- | /O(n)/ Construct a vector with exactly @n@ elements by repeatedly
+-- -- applying the monadic generator function to a seed. The generator
+-- -- function yields the next element and the new seed.
+-- --
+-- -- @since 0.12.2.0
+-- unfoldrExactNST :: Int -> (b -> ST s (a, b)) -> b -> ST s (Vector a)
+-- {-# INLINE unfoldrExactNST #-}
+-- unfoldrExactNST n f x0 = unfoldrNST n (\x -> do y <- f x; return (Just y)) x0
 
 -- TODO: SPECIALIZE prevents inlining, reconsider all uses of it.
 
--- This rule makes sure that fmap Just above gets optimized properly after unfoldrNM 
--- is inlined:
-{-# RULES
-"fmap/>>=" forall f x k. Prelude.fmap f x Prelude.>>= k = x Prelude.>>= \x' -> k (f x')
-">>=/>>=" forall x y z. (x Prelude.>>= y) Prelude.>>= z = x Prelude.>>= \x' -> y x' Prelude.>>= z
-">>=/return" forall x. x Prelude.>>= Prelude.return = x
-"return/>>=" forall x f. Prelude.return x Prelude.>>= f = f x
-">>=/pure" forall x. x Prelude.>>= Prelude.pure = x
-"pure/>>=" forall x k. Prelude.pure x Prelude.>>= k = k x
-#-}
+-- -- This rule makes sure that fmap Just above gets optimized properly after unfoldrNM 
+-- -- is inlined:
+-- {-# RULES
+-- "fmap/>>=" forall f x k. Prelude.fmap f x Prelude.>>= k = x Prelude.>>= \x' -> k (f x')
+-- ">>=/>>=" forall x y z. (x Prelude.>>= y) Prelude.>>= z = x Prelude.>>= \x' -> y x' Prelude.>>= z
+-- ">>=/return" forall x. x Prelude.>>= Prelude.return = x
+-- "return/>>=" forall x f. Prelude.return x Prelude.>>= f = f x
+-- ">>=/pure" forall x. x Prelude.>>= Prelude.pure = x
+-- "pure/>>=" forall x k. Prelude.pure x Prelude.>>= k = k x
+-- #-}
 
 -- -- | /O(n)/ Construct a vector with @n@ elements by repeatedly applying the
 -- -- generator function to the already constructed part of the vector.
@@ -583,38 +593,38 @@ concat (v0:vs0) = unfoldrExactN (Prelude.sum (Prelude.map length (v0:vs0))) step
                        in (x, (i', v, vs))
       | otherwise = let !(v':vs') = vs in step (0, v', vs')
 
--- -- Monadic initialisation
--- -- ----------------------
+-- -- -- Monadic initialisation
+-- -- -- ----------------------
 
--- | /O(n)/ Execute the monadic action the given number of times and store the
--- results in a vector.
-replicateM :: Monad m => Int -> m a -> m (Vector a)
-{-# INLINE replicateM #-}
-replicateM n m = unfoldrExactNM n (\() -> do x <- m; Prelude.return (x, ())) ()
-{-# SPECIALIZE replicateM :: Int -> Prelude.IO a -> Prelude.IO (Vector a) #-}
+-- -- | /O(n)/ Execute the monadic action the given number of times and store the
+-- -- results in a vector.
+-- replicateM :: Monad m => Int -> m a -> m (Vector a)
+-- {-# INLINE replicateM #-}
+-- replicateM n m = unfoldrExactNM n (\() -> do x <- m; Prelude.return (x, ())) ()
+-- {-# SPECIALIZE replicateM :: Int -> Prelude.IO a -> Prelude.IO (Vector a) #-}
 
--- | /O(n)/ Construct a vector of the given length by applying the monadic
--- action to each index.
-generateM :: Monad m => Int -> (Int -> m a) -> m (Vector a)
-{-# INLINE generateM #-}
-generateM n f = iunfoldrNM n (\i () -> do x <- f i; Prelude.return (Just (x, ()))) ()
-{-# SPECIALIZE generateM :: Int -> (Int -> Prelude.IO a) -> Prelude.IO (Vector a) #-}
+-- -- | /O(n)/ Construct a vector of the given length by applying the monadic
+-- -- action to each index.
+-- generateM :: Monad m => Int -> (Int -> m a) -> m (Vector a)
+-- {-# INLINE generateM #-}
+-- generateM n f = iunfoldrNM n (\i () -> do x <- f i; Prelude.return (Just (x, ()))) ()
+-- {-# SPECIALIZE generateM :: Int -> (Int -> Prelude.IO a) -> Prelude.IO (Vector a) #-}
 
--- | /O(n)/ Apply the monadic function \(\max(n - 1, 0)\) times to an initial value, producing a vector
--- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
--- is one less function application than the number of elements in the produced vector.
---
--- For a non-monadic version, see `iterateN`.
---
--- @since 0.12.0.0
-iterateNM :: Monad m => Int -> (a -> m a) -> a -> m (Vector a)
-{-# INLINE iterateNM #-}
--- TODO: this doesn't produce optimal Core:
-iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; Prelude.return (x' `Prelude.seq` Just (x, x'))) x0
--- TODO: all monadic functions should have specialize for IO:
-{-# SPECIALIZE iterateNM :: Int -> (a -> Prelude.IO a) -> a -> Prelude.IO (Vector a) #-}
--- TODO: consider if we really want this:
-{-# SPECIALIZE iterateNM :: Int -> (a -> Identity a) -> a -> Identity (Vector a) #-}
+-- -- | /O(n)/ Apply the monadic function \(\max(n - 1, 0)\) times to an initial value, producing a vector
+-- -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
+-- -- is one less function application than the number of elements in the produced vector.
+-- --
+-- -- For a non-monadic version, see `iterateN`.
+-- --
+-- -- @since 0.12.0.0
+-- iterateNM :: Monad m => Int -> (a -> m a) -> a -> m (Vector a)
+-- {-# INLINE iterateNM #-}
+-- -- TODO: this doesn't produce optimal Core:
+-- iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; Prelude.return (x' `Prelude.seq` Just (x, x'))) x0
+-- -- TODO: all monadic functions should have specialize for IO:
+-- {-# SPECIALIZE iterateNM :: Int -> (a -> Prelude.IO a) -> a -> Prelude.IO (Vector a) #-}
+-- -- TODO: consider if we really want this:
+-- {-# SPECIALIZE iterateNM :: Int -> (a -> Identity a) -> a -> Identity (Vector a) #-}
 
 -- -- -- | Execute the monadic action and freeze the resulting vector.
 -- -- --
@@ -836,12 +846,12 @@ unsafeBackpermute vx vi = generate (length vi) (\i -> unsafeIndex vx (unsafeInde
 -- Consider using explicit streaming (TODO) if you compose this with other combinators.
 map :: (a -> b) -> Vector a -> Vector b
 {-# INLINE map #-}
-map f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in Identity (Just (f x, ()))) ())
+map f v = iunfoldrExactN (length v) (\i () -> let !x = unsafeIndex v i in (f x, ())) ()
 
 -- | /O(n)/ Apply a function to every element of a vector and its index.
 imap :: (Int -> a -> b) -> Vector a -> Vector b
 {-# INLINE imap #-}
-imap f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in Identity (Just (f i x, ()))) ())
+imap f v = iunfoldrExactN (length v) (\i () -> let !x = unsafeIndex v i in (f i x, ())) ()
 
 -- -- | Map a function over a vector and concatenate the results.
 -- concatMap :: (a -> Vector b) -> Vector a -> Vector b
@@ -855,22 +865,24 @@ imap f v = unIdentity (iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i 
 -- {-# INLINE iconcatMap #-}
 -- iconcatMap = G.iconcatMap
 
--- Monadic mapping
--- ---------------
+-- -- Monadic mapping
+-- -- ---------------
 
--- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
--- vector of results.
-mapM :: Monad m => (a -> m b) -> Vector a -> m (Vector b)
-{-# INLINE mapM #-}
-mapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f x; Prelude.return (Just (y, ()))) ()
-{-# SPECIALIZE mapM :: (a -> Prelude.IO b) -> Vector a -> Prelude.IO (Vector b) #-}
+-- -- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
+-- -- vector of results.
+-- mapM :: Monad m => (a -> m b) -> Vector a -> m (Vector b)
+-- {-# INLINE mapM #-}
+-- mapM f v = _
+  
+--  -- iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f x; Prelude.return (Just (y, ()))) ()
+-- {-# SPECIALIZE mapM :: (a -> Prelude.IO b) -> Vector a -> Prelude.IO (Vector b) #-}
 
--- | /O(n)/ Apply the monadic action to every element of a vector and its
--- index, yielding a vector of results.
-imapM :: Monad m => (Int -> a -> m b) -> Vector a -> m (Vector b)
-{-# INLINE imapM #-}
-imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f i x; Prelude.return (Just (y, ()))) ()
-{-# SPECIALIZE imapM :: (Int -> a -> Prelude.IO b) -> Vector a -> Prelude.IO (Vector b) #-}
+-- -- | /O(n)/ Apply the monadic action to every element of a vector and its
+-- -- index, yielding a vector of results.
+-- imapM :: Monad m => (Int -> a -> m b) -> Vector a -> m (Vector b)
+-- {-# INLINE imapM #-}
+-- imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f i x; Prelude.return (Just (y, ()))) ()
+-- {-# SPECIALIZE imapM :: (Int -> a -> Prelude.IO b) -> Vector a -> Prelude.IO (Vector b) #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
 -- results.
@@ -886,12 +898,12 @@ imapM_ :: Monad m => (Int -> a -> m b) -> Vector a -> m ()
 imapM_ f v = ifoldr (\i x xs -> x `Prelude.seq` (f i x Prelude.>> xs)) (Prelude.return ()) v
 {-# SPECIALIZE imapM_ :: (Int -> a -> Prelude.IO b) -> Vector a -> Prelude.IO () #-}
 
--- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
--- vector of results. Equivalent to @flip 'mapM'@.
-forM :: Monad m => Vector a -> (a -> m b) -> m (Vector b)
-{-# INLINE forM #-}
-forM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f x)
-{-# SPECIALIZE forM :: Vector a -> (a -> Prelude.IO b) -> Prelude.IO (Vector b) #-}
+-- -- | /O(n)/ Apply the monadic action to all elements of the vector, yielding a
+-- -- vector of results. Equivalent to @flip 'mapM'@.
+-- forM :: Monad m => Vector a -> (a -> m b) -> m (Vector b)
+-- {-# INLINE forM #-}
+-- forM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f x)
+-- {-# SPECIALIZE forM :: Vector a -> (a -> Prelude.IO b) -> Prelude.IO (Vector b) #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of a vector and ignore the
 -- results. Equivalent to @flip 'mapM_'@.
@@ -900,14 +912,14 @@ forM_ :: Monad m => Vector a -> (a -> m b) -> m ()
 forM_ v f = foldr (\x m -> f x Prelude.>> m) (Prelude.return ()) v
 {-# SPECIALIZE forM_ :: Vector a -> (a -> Prelude.IO b) -> Prelude.IO () #-}
 
--- | /O(n)/ Apply the monadic action to all elements of the vector and their indices, yielding a
--- vector of results. Equivalent to @'flip' 'imapM'@.
---
--- @since 0.12.2.0
-iforM :: Monad m => Vector a -> (Int -> a -> m b) -> m (Vector b)
-{-# INLINE iforM #-}
-iforM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f i x)
-{-# SPECIALIZE iforM :: Vector a -> (Int -> a -> Prelude.IO b) -> Prelude.IO (Vector b) #-}
+-- -- | /O(n)/ Apply the monadic action to all elements of the vector and their indices, yielding a
+-- -- vector of results. Equivalent to @'flip' 'imapM'@.
+-- --
+-- -- @since 0.12.2.0
+-- iforM :: Monad m => Vector a -> (Int -> a -> m b) -> m (Vector b)
+-- {-# INLINE iforM #-}
+-- iforM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f i x)
+-- {-# SPECIALIZE iforM :: Vector a -> (Int -> a -> Prelude.IO b) -> Prelude.IO (Vector b) #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of the vector and their indices
 -- and ignore the results. Equivalent to @'flip' 'imapM_'@.
@@ -1442,7 +1454,7 @@ foldMap f = foldr (\x m -> f x Prelude.<> m) Prelude.mempty
 -- | /O(n)/ Like 'foldMap', but strict in the accumulator. It uses the same
 -- implementation as the corresponding method of the 'Foldable' type class.
 -- Note that it's implemented in terms of 'foldl'', so it fuses in most
--- contexts.
+-- contGHC.
 --
 -- @since 0.12.2.0
 foldMap' :: (Monoid m) => (a -> m) -> Vector a -> m
@@ -1769,17 +1781,17 @@ foldM k z = foldl' (\m y -> do x <- m; k x y) (Prelude.return z)
 -- -- Monadic sequencing
 -- -- ------------------
 
--- -- | Evaluate each action and collect the results.
-sequence :: Monad m => Vector (m a) -> m (Vector a)
-{-# INLINE sequence #-}
-sequence v = generateM (length v) (\i -> unsafeIndex v i)
-{-# SPECIALIZE sequence :: Vector (Prelude.IO a) -> Prelude.IO (Vector a) #-}
+-- -- -- | Evaluate each action and collect the results.
+-- sequence :: Monad m => Vector (m a) -> m (Vector a)
+-- {-# INLINE sequence #-}
+-- sequence v = generateM (length v) (\i -> unsafeIndex v i)
+-- {-# SPECIALIZE sequence :: Vector (Prelude.IO a) -> Prelude.IO (Vector a) #-}
 
--- | Evaluate each action and discard the results.
-sequence_ :: Monad m => Vector (m a) -> m ()
-{-# INLINE sequence_ #-}
-sequence_ = foldr (\m xs -> m Prelude.>> xs) (Prelude.return ())
-{-# SPECIALIZE sequence_ :: Vector (Prelude.IO a) -> Prelude.IO () #-}
+-- -- | Evaluate each action and discard the results.
+-- sequence_ :: Monad m => Vector (m a) -> m ()
+-- {-# INLINE sequence_ #-}
+-- sequence_ = foldr (\m xs -> m Prelude.>> xs) (Prelude.return ())
+-- {-# SPECIALIZE sequence_ :: Vector (Prelude.IO a) -> Prelude.IO () #-}
 
 -- Scans
 -- -----
@@ -1802,7 +1814,7 @@ sequence_ = foldr (\m xs -> m Prelude.>> xs) (Prelude.return ())
 -- | /O(n)/ Left-to-right prescan with strict accumulator.
 prescanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
 {-# INLINE prescanl' #-}
-prescanl' k z v = unIdentity (iunfoldrNM (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in Identity (Just (s, s'))) z)
+prescanl' k z v = iunfoldrExactN (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in (s, s')) z
 
 -- -- | /O(n)/ Left-to-right postscan.
 -- --
@@ -1822,7 +1834,7 @@ prescanl' k z v = unIdentity (iunfoldrNM (length v) (\i s -> let !x = unsafeInde
 -- | /O(n)/ Left-to-right postscan with strict accumulator.
 postscanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
 {-# INLINE postscanl' #-}
-postscanl' k z v = unIdentity (iunfoldrNM (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in Identity (Just (s', s'))) z)
+postscanl' k z v = iunfoldrExactN (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in (s', s')) z
 
 -- -- | /O(n)/ Left-to-right scan.
 -- --
@@ -1842,7 +1854,7 @@ postscanl' k z v = unIdentity (iunfoldrNM (length v) (\i s -> let !x = unsafeInd
 -- | /O(n)/ Left-to-right scan with strict accumulator.
 scanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
 {-# INLINE scanl' #-}
-scanl' k z v = unIdentity (iunfoldrNM (length v + 1) (\i s -> if i == length v then Identity (Just (s,s)) else let !x = unsafeIndex v i; s' = k s x in Identity (Just (s, s'))) z)
+scanl' k z v = iscanl' (\_ -> k) z v
 
 -- -- | /O(n)/ Left-to-right scan over a vector with its index.
 -- --
@@ -1856,7 +1868,7 @@ scanl' k z v = unIdentity (iunfoldrNM (length v + 1) (\i s -> if i == length v t
 -- @since 0.12.0.0
 iscanl' :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
 {-# INLINE iscanl' #-}
-iscanl' k z v = unIdentity (iunfoldrNM (length v + 1) (\i s -> if i == length v then Identity (Just (s,s)) else let !x = unsafeIndex v i; s' = k i s x in Identity (Just (s, s'))) z)
+iscanl' k z v = iunfoldrExactN (length v + 1) (\i s -> if i == length v then (s,s) else let !x = unsafeIndex v i; s' = k i s x in (s, s')) z
 
 -- -- | /O(n)/ Initial-value free left-to-right scan over a vector.
 -- --
@@ -1894,12 +1906,12 @@ iscanl' k z v = unIdentity (iunfoldrNM (length v + 1) (\i s -> if i == length v 
 -- []
 scanl1' :: (a -> a -> a) -> Vector a -> Vector a
 {-# INLINE scanl1' #-}
-scanl1' k v = unIdentity (iunfoldrNM (length v) (\i s -> Identity (Just (
+scanl1' k v = iunfoldrExactN (length v) (\i s ->
   let !x = unsafeIndex v i in
   case s of
     Nothing -> (x,Just x)
     Just y -> let z = k y x in (z, Just z)
-  ))) Nothing)
+  ) Nothing
 
 -- -- | /O(n)/ Right-to-left prescan.
 -- --
@@ -2011,7 +2023,7 @@ cmpBy cmp v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in cmp x y Prelude.<
 -- | /O(n)/ Convert a vector to a list. Can fuse!
 toList :: Vector a -> [a]
 {-# INLINE toList #-}
-toList v = Exts.build (\c n ->
+toList v = GHC.build (\c n ->
   let 
     go i
       | i < length v = let !x = unsafeIndex v i in x `c` go (i + 1)
@@ -2044,29 +2056,29 @@ toList v = Exts.build (\c n ->
 -- @
 fromListN :: Int -> [a] -> Vector a
 {-# INLINE fromListN #-}
-fromListN @a (Exts.I# n) xs = Exts.runRW# (\s0 ->
+fromListN @a (GHC.I# n) xs = GHC.runRW# (\s0 ->
   let
-    marr :: Exts.MutableArray# Exts.RealWorld (Strict a)
-    !(# s1, marr #) = Exts.newArray# n (Exts.unsafeCoerce# ()) s0
+    marr :: GHC.MutableArray# GHC.RealWorld (Strict a)
+    !(# s1, marr #) = GHC.newArray# n (GHC.unsafeCoerce# ()) s0
     endNormal s = 
-      let !(# _, arr' #) = Exts.unsafeFreezeArray# marr s
-      in MkVector arr'
+      let !(# _, arr' #) = GHC.unsafeFreezeArray# marr s
+      in UnsafeVector arr'
   in Prelude.foldr
-    (\x go -> Exts.oneShot (\(MkFromListNSt (# s, i #)) ->
-      case i Exts.<# n of
+    (\x go -> GHC.oneShot (\(MkFromListNSt (# s, i #)) ->
+      case i GHC.<# n of
         0# -> endNormal s
         _ ->
-          let !s' = Exts.writeArray# marr i (Strict x) s
-          in go (MkFromListNSt (# s', i Exts.+# 1# #))))
+          let !s' = GHC.writeArray# marr i (Strict x) s
+          in go (MkFromListNSt (# s', i GHC.+# 1# #))))
     (\(MkFromListNSt (# s, i #)) ->
-      case i Exts.==# n of
+      case i GHC.==# n of
         0# -> 
-          let !(# _, arr' #) = Exts.freezeArray# marr 0# i s
-          in MkVector arr'
+          let !(# _, arr' #) = GHC.freezeArray# marr 0# i s
+          in UnsafeVector arr'
         _ -> endNormal s)
     xs (MkFromListNSt (# s1, 0# #)))
 
-data FromListNSt = MkFromListNSt (# Exts.State# Exts.RealWorld, Exts.Int# #)
+data FromListNSt = MkFromListNSt (# GHC.State# GHC.RealWorld, GHC.Int# #)
 
 -- -- Applicative
 -- -- -----------
@@ -2075,8 +2087,8 @@ data FromListNSt = MkFromListNSt (# Exts.State# Exts.RealWorld, Exts.Int# #)
 -- -- action to each index.
 -- --
 -- -- @since NEXT_VERSION
--- generateA :: (Applicative f) => Int -> (Int -> f a) -> f (Vector a)
--- generateA = G.generateA
+-- generateA :: Applicative f => Int -> (Int -> f a) -> f (Vector a)
+-- generateA n f = runST $ 
 
 -- -- | Execute the applicative action the given number of times and store the
 -- -- results in a vector.
@@ -2159,65 +2171,92 @@ data FromListNSt = MkFromListNSt (# Exts.State# Exts.RealWorld, Exts.Int# #)
 -- iforA_ = G.iforA_
 
 
--- -- -- Conversions - Mutable vectors
--- -- -- -----------------------------
+-- Conversions - Mutable vectors
+-- -----------------------------
 
--- -- -- | /O(1)/ Unsafely convert a mutable vector to an immutable one without
--- -- -- copying. The mutable vector may not be used after this operation.
--- -- unsafeFreeze :: PrimMonad m => MVector (PrimState m) a -> m (Vector a)
--- -- {-# INLINE unsafeFreeze #-}
--- -- unsafeFreeze = G.unsafeFreeze
+-- | /O(1)/ Unsafely convert a mutable vector to an immutable one without
+-- copying. The mutable vector may not be used after this operation.
+unsafeFreeze :: M.STVector s a -> ST s (Vector a)
+{-# INLINE unsafeFreeze #-}
+unsafeFreeze (M.UnsafeSTVector marr) = GHC.ST (\s ->
+  case GHC.unsafeFreezeArray# marr s of
+    (# s', arr #) -> (# s', UnsafeVector arr #))
 
--- -- -- | /O(n)/ Yield an immutable copy of the mutable vector.
--- -- freeze :: PrimMonad m => MVector (PrimState m) a -> m (Vector a)
--- -- {-# INLINE freeze #-}
--- -- freeze = G.freeze
+data VectorSlice a = UnsafeVectorSlice {-# UNPACK #-} !(Vector a) !Int !Int
 
--- -- -- | /O(1)/ Unsafely convert an immutable vector to a mutable one
--- -- -- without copying. Note that this is a very dangerous function and
--- -- -- generally it's only safe to read from the resulting vector. In this
--- -- -- case, the immutable vector could be used safely as well.
--- -- --
--- -- -- Problems with mutation happen because GHC has a lot of freedom to
--- -- -- introduce sharing. As a result mutable vectors produced by
--- -- -- @unsafeThaw@ may or may not share the same underlying buffer. For
--- -- -- example:
--- -- --
--- -- -- > foo = do
--- -- -- >   let vec = V.generate 10 id
--- -- -- >   mvec <- V.unsafeThaw vec
--- -- -- >   do_something mvec
--- -- --
--- -- -- Here GHC could lift @vec@ outside of foo which means that all calls to
--- -- -- @do_something@ will use same buffer with possibly disastrous
--- -- -- results. Whether such aliasing happens or not depends on the program in
--- -- -- question, optimization levels, and GHC flags.
--- -- --
--- -- -- All in all, attempts to modify a vector produced by @unsafeThaw@ fall out of
--- -- -- domain of software engineering and into realm of black magic, dark
--- -- -- rituals, and unspeakable horrors. The only advice that could be given
--- -- -- is: "Don't attempt to mutate a vector produced by @unsafeThaw@ unless you
--- -- -- know how to prevent GHC from aliasing buffers accidentally. We don't."
--- -- unsafeThaw :: PrimMonad m => Vector a -> m (MVector (PrimState m) a)
--- -- {-# INLINE unsafeThaw #-}
--- -- unsafeThaw = G.unsafeThaw
+whole :: Vector a -> VectorSlice a
+whole v = UnsafeVectorSlice v 0 (length v)
 
--- -- -- | /O(n)/ Yield a mutable copy of an immutable vector.
--- -- thaw :: PrimMonad m => Vector a -> m (MVector (PrimState m) a)
--- -- {-# INLINE thaw #-}
--- -- thaw = G.thaw
+unsafeTakeL :: Int -> VectorSlice a -> VectorSlice a
+unsafeTakeL n (UnsafeVectorSlice m off _) = UnsafeVectorSlice m off n
 
--- -- -- | /O(n)/ Copy an immutable vector into a mutable one. The two vectors must
--- -- -- have the same length. This is not checked.
--- -- unsafeCopy :: PrimMonad m => MVector (PrimState m) a -> Vector a -> m ()
--- -- {-# INLINE unsafeCopy #-}
--- -- unsafeCopy = G.unsafeCopy
+unsafeTakeR :: Int -> VectorSlice a -> VectorSlice a
+unsafeTakeR n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m (off + len - n) n
 
--- -- -- | /O(n)/ Copy an immutable vector into a mutable one. The two vectors must
--- -- -- have the same length.
--- -- copy :: PrimMonad m => MVector (PrimState m) a -> Vector a -> m ()
--- -- {-# INLINE copy #-}
--- -- copy = G.copy
+unsafeDropL :: Int -> VectorSlice a -> VectorSlice a
+unsafeDropL n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m (off + n) (len - n)
+
+unsafeDropR :: Int -> VectorSlice a -> VectorSlice a
+unsafeDropR n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m off (len - n)
+
+-- | /O(n)/ Yield an immutable copy of the mutable vector.
+freeze :: M.STVectorSlice s a -> ST s (Vector a)
+{-# INLINE freeze #-}
+freeze (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# off) (GHC.I# len)) = GHC.ST (\s ->
+  case GHC.freezeArray# marr off len s of
+    (# s', arr #) -> (# s', UnsafeVector arr #))
+
+-- -- | /O(1)/ Unsafely convert an immutable vector to a mutable one
+-- -- without copying. Note that this is a very dangerous function and
+-- -- generally it's only safe to read from the resulting vector. In this
+-- -- case, the immutable vector could be used safely as well.
+-- --
+-- -- Problems with mutation happen because GHC has a lot of freedom to
+-- -- introduce sharing. As a result mutable vectors produced by
+-- -- @unsafeThaw@ may or may not share the same underlying buffer. For
+-- -- example:
+-- --
+-- -- > foo = do
+-- -- >   let vec = V.generate 10 id
+-- -- >   mvec <- V.unsafeThaw vec
+-- -- >   do_something mvec
+-- --
+-- -- Here GHC could lift @vec@ outside of foo which means that all calls to
+-- -- @do_something@ will use same buffer with possibly disastrous
+-- -- results. Whether such aliasing happens or not depends on the program in
+-- -- question, optimization levels, and GHC flags.
+-- --
+-- -- All in all, attempts to modify a vector produced by @unsafeThaw@ fall out of
+-- -- domain of software engineering and into realm of black magic, dark
+-- -- rituals, and unspeakable horrors. The only advice that could be given
+-- -- is: "Don't attempt to mutate a vector produced by @unsafeThaw@ unless you
+-- -- know how to prevent GHC from aliasing buffers accidentally. We don't."
+-- unsafeThaw :: Vector a -> ST s (M.STVector s a)
+-- {-# INLINE unsafeThaw #-}
+-- unsafeThaw (UnsafeVector arr) = GHC.ST (\s -> 
+--   case GHC.unsafeThawArray# arr s of
+--     (# s', marr #) -> (# s', M.UnsafeSTVector marr #))
+
+-- | /O(n)/ Yield a mutable copy of an immutable vector.
+thaw :: VectorSlice a -> ST s (M.STVector s a)
+{-# INLINE thaw #-}
+thaw (UnsafeVectorSlice (UnsafeVector arr) (GHC.I# i) (GHC.I# n)) = GHC.ST (\s -> 
+  case GHC.thawArray# arr i n s of
+    (# s', marr #) -> (# s', M.UnsafeSTVector marr #))
+
+-- | /O(n)/ Copy an immutable vector into a mutable one.
+unsafeCopy :: VectorSlice a -> M.STVectorSlice s a -> ST s ()
+{-# INLINE unsafeCopy #-}
+unsafeCopy (UnsafeVectorSlice (UnsafeVector arr) (GHC.I# offv) _) (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# offm) (GHC.I# len)) = GHC.ST (\s -> 
+  (# GHC.copyArray# arr offv marr offm len s , () #))
+
+-- | /O(n)/ Copy an immutable vector into a mutable one. The two vectors must
+-- have the same length.
+copy :: VectorSlice a -> M.STVectorSlice s a -> ST s ()
+{-# INLINE copy #-}
+copy v@(UnsafeVectorSlice _ _ vn) m@(M.UnsafeSTVectorSlice _ _ mn)
+  | mn == vn = unsafeCopy v m
+  | otherwise = error "copy: vector slices have different lengths"
 
 -- -- -- $setup
 -- -- -- >>> :set -Wno-type-defaults
