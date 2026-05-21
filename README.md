@@ -1,1 +1,3 @@
-vector/README.md
+The `vector-simple` package
+====================
+

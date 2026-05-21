@@ -1,8 +1,6 @@
-packages:
-  vector
---  vector-stream
---  vector-bench-papi
+packages: .
 
 -- Always build tests
 tests: True
 
+optimization: True
