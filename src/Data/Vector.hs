@@ -2052,18 +2052,15 @@ toList v = GHC.build (\c n ->
       | otherwise = n
   in go 0)
 
--- -- | /O(n)/ Convert a list to a vector. During the operation, the 
--- -- vector’s capacity will be doubling until the list's contents are 
--- -- in the vector. Depending on the list’s size, up to half of the vector’s 
--- -- capacity might be empty. If you’d rather avoid this, you can use 
--- -- 'fromListN', which will provide the exact space the list requires but will 
--- -- prevent list fusion, or @'force' . 'fromList'@, which will create the 
--- -- vector and then copy it without the superfluous space.
--- --
--- -- @since 0.3
--- fromList :: [a] -> Vector a
--- {-# INLINE fromList #-}
--- fromList = G.fromList
+-- | /O(n)/ Convert a list to a vector. During the operation, the 
+-- vector’s capacity will be doubling until the list's contents are 
+-- in the vector.
+fromList :: [a] -> Vector a
+{-# INLINE fromList #-}
+fromList xs = runST (do
+  m <- G.new
+  Prelude.mapM_ (G.pushBack m) xs
+  unsafePetrify m)
 
 -- | /O(n)/ Convert the first @n@ elements of a list to a vector. It's
 -- expected that the supplied list will be exactly @n@ elements long. As
@@ -2090,12 +2087,6 @@ fromListN n xs = runST (do
       else do M.unsafeShrink m i; unsafeFreeze m)
     xs
     0)
-
-fromList :: [a] -> Vector a
-fromList xs = runST (do
-  m <- G.new
-  Prelude.mapM_ (G.pushBack m) xs
-  unsafePetrify m)
 
 -- -- Applicative
 -- -- -----------
