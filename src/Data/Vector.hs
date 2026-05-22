@@ -553,7 +553,7 @@ iunfoldrExactN n f x0 = iunfoldrN n (\i x -> Just (f i x)) x0
 -- > enumFromN 5 3 = <5,6,7>
 enumFromN :: Num a => a -> Int -> Vector a
 {-# INLINE enumFromN #-}
-enumFromN x0 n = unfoldrExactN n (\ x -> (x, x + 1)) x0
+enumFromN x0 n = generate n (\i -> x0 + Prelude.fromIntegral i)
 
 -- | /O(n)/ Yield a vector of the given length, containing the values @x@, @x+y@,
 -- @x+y+y@ etc. This operations is usually more efficient than 'enumFromThenTo'.
@@ -561,7 +561,7 @@ enumFromN x0 n = unfoldrExactN n (\ x -> (x, x + 1)) x0
 -- > enumFromStepN 1 2 5 = <1,3,5,7,9>
 enumFromStepN :: Num a => a -> a -> Int -> Vector a
 {-# INLINE enumFromStepN #-}
-enumFromStepN x0 y n = unfoldrExactN n (\ x -> (x, x + y)) x0
+enumFromStepN x0 y n = generate n (\i -> x0 + y * Prelude.fromIntegral i)
 
 -- -- | /O(n)/ Enumerate values from @x@ to @y@.
 -- --
@@ -596,7 +596,7 @@ infixr 5 ++
 -- | /O(m+n)/ Concatenate two vectors.
 (++) :: Vector a -> Vector a -> Vector a
 {-# INLINE (++) #-}
-v ++ w = unfoldrExactN (length v + length w) (\i -> (if i < length v then v ! i else w ! i, i + 1)) 0
+v ++ w = generate (length v + length w) (\i -> if i < length v then v ! i else w ! i)
 
 -- | /O(n)/ Concatenate all vectors in the list.
 -- TODO: this could probably be done in a fusible way
