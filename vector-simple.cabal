@@ -1,68 +1,48 @@
-Cabal-Version:  3.0
-Build-Type:     Simple
-Name:           vector-simple
-Version:        0.1.0.0
+cabal-version:  3.0
+build-type:     Simple
+name:           vector-simple
+version:        0.1.0.0
 -- don't forget to update the changelog file!
-License:        BSD-3-Clause
-License-File:   LICENSE
-Author:         Jaro Reinders <code@jaro.addy.io>
-Maintainer:     Jaro Reinders <code@jaro.addy.io>
-Copyright:      (c) Roman Leshchinskiy 2008-2010
-                    Alexey Kuleshevich 2020-2022
-                    Aleksey Khudyakov 2020-2022
-                    Andrew Lelechenko 2020-2022
+license:        BSD-3-Clause
+license-file:   LICENSE
+author:         Jaro Reinders <code@jaro.addy.io>
+maintainer:     Jaro Reinders <code@jaro.addy.io>
+copyright:      (c) Roman Leshchinskiy 2008-2010,
+                    Alexey Kuleshevich 2020-2022,
+                    Aleksey Khudyakov 2020-2022,
+                    Andrew Lelechenko 2020-2022,
                     Jaro Reinders 2026
 
-Homepage:       https://github.com/noughtmare/vector-simple
-Bug-Reports:    https://github.com/noughtmare/vector-simple/issues
-Category:       Data, Data Structures
-Synopsis:       Efficient Arrays
-Description:
-        An efficient and simple implementation of @Int@-indexed arrays (both 
-        mutable and immutable).
+homepage:       https://github.com/noughtmare/vector-simple
+bug-reports:    https://github.com/noughtmare/vector-simple/issues
+category:       Data, Data Structures
+synopsis:       Simple Efficient Arrays
+description:
+        An efficient and simple implementation of @Int@-indexed arrays.
 
         In contrast to vector, the arrays in this package are strict in their
         elements. There is also no fusion framework, so each (safe) operation 
         on immutable vectors yields a fresh copy.
 
 
-Extra-doc-files:
-      changelog.md
-      README.md
+extra-doc-files: changelog.md
+                 README.md
 
 source-repository head
   type:     git
   location: https://github.com/noughtmare/vector-simple.git
-  subdir:   vector
 
-Flag Wall
-  Description: Enable all -Wall warnings
-  Default: False
-  Manual: True
-
--- This common sets warning flags passed to GHC as controlled by Wall cabal flag
-common flag-Wall
-  Ghc-Options: -Wall
-  if !flag(Wall)
-    Ghc-Options: -fno-warn-orphans
-
-Library
-  import:           flag-Wall
-  Default-Language: GHC2021
-  Other-Extensions:
-        GADTs
-        MagicHash
-        TypeFamilies
-        UnliftedDatatypes
-        UnboxedTuples
-
-  Exposed-Modules:
-        Data.Vector.Grow
-        Data.Vector.Mutable
-        Data.Vector
-
-  Hs-Source-Dirs:
-        src
-
-  Build-Depends: base >= 4.13 && < 4.23
-               , data-elevator >= 0.3 && < 0.4
+library
+  exposed-modules:  Data.Vector.Grow
+                    Data.Vector.Mutable
+                    Data.Vector
+  build-depends:    base >= 4.18 && < 4.23
+                  , data-elevator >= 0.3 && < 0.4
+  hs-source-dirs:   src
+  default-language: GHC2021
+  other-extensions: GADTs
+                    MagicHash
+                    TypeFamilies
+                    UnliftedDatatypes
+                    UnboxedTuples
+  ghc-options:     -Wall
