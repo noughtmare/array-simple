@@ -21,5 +21,4 @@ Note: you should enable `optimization: 2` in your cabal.project file to get the 
 This package is not complete yet. We have the following plans:
 
 * Move slices to their own modules and provide a more complete interface on them.
-* Implement dynamically growing vectors and the operations that depend on that (notably `fromList`)
 * Design some form of unboxed vectors. Hopefullly supporting compound and nested structures.

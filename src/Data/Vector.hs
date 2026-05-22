@@ -55,11 +55,11 @@ module Data.Vector (
   -- ** Initialisation
   empty, singleton, replicate, generate, iterateN,
 
-  -- ** Monadic initialisation
+  -- -- ** Monadic initialisation
   -- replicateST, generateST, iterateNST, 
   -- -- create, createT,
 
-  -- -- ** Unfolding
+  -- ** Unfolding
   -- -- unfoldr, 
   unfoldrN, unfoldrExactN,
   iunfoldrN, iunfoldrExactN,
@@ -67,11 +67,11 @@ module Data.Vector (
   -- unfoldrNST, unfoldrExactNST,
   -- -- constructN, constructrN,
 
-  -- -- ** Enumeration
+  -- ** Enumeration
   enumFromN, enumFromStepN, 
   -- enumFromTo, enumFromThenTo,
 
-  -- -- ** Concatenation
+  -- ** Concatenation
   -- -- cons, snoc, 
   (++), concat,
 
@@ -88,7 +88,7 @@ module Data.Vector (
   -- accum, accumulate, accumulate_,
   -- unsafeAccum, unsafeAccumulate, unsafeAccumulate_,
 
-  -- -- ** Permutations
+  -- ** Permutations
   reverse, backpermute, unsafeBackpermute,
 
   -- -- ** Safe destructive updates
@@ -99,11 +99,11 @@ module Data.Vector (
   -- -- ** Indexing
   -- indexed,
 
-  -- -- ** Mapping
+  -- ** Mapping
   map, imap, 
   -- concatMap, iconcatMap,
 
-  -- -- ** Monadic mapping
+  -- ** Monadic mapping
   -- mapM, imapM, 
   mapM_, imapM_, 
   -- forM, iforM,
@@ -132,25 +132,25 @@ module Data.Vector (
   -- -- ** Partitioning
   -- partition, unstablePartition, partitionWith, span, break, spanR, breakR, groupBy, group,
 
-  -- -- ** Searching
+  -- ** Searching
   elem, notElem, find, findIndex, 
   -- findIndexR, findIndices, 
   elemIndex, 
   -- elemIndices,
 
-  -- -- * Folding
+  -- * Folding
   foldl, foldl1, foldl', foldl1', foldr, foldr1, foldr', foldr1',
   ifoldl, ifoldl', ifoldr, ifoldr',
   foldMap, foldMap',
 
-  -- -- ** Specialised folds
+  -- ** Specialised folds
   all, any, and, or,
   sum, product,
   maximum, maximumBy, maximumOn,
   minimum, minimumBy, minimumOn,
   -- minIndex, minIndexBy, maxIndex, maxIndexBy,
 
-  -- -- ** Monadic folds
+  -- ** Monadic folds
   foldM, 
   -- ifoldM, foldM', ifoldM',
   -- fold1M, fold1M',foldM_, ifoldM_,
@@ -159,7 +159,7 @@ module Data.Vector (
   -- -- ** Monadic sequencing
   -- sequence, sequence_,
 
-  -- -- * Scans
+  -- * Scans
   -- prescanl, 
   prescanl',
   -- postscanl, 
@@ -179,15 +179,13 @@ module Data.Vector (
   -- replicateA, generateA, traverse, itraverse, forA, iforA,
   -- traverse_, itraverse_, forA_, iforA_,
 
-  -- -- ** Comparisons
+  -- ** Comparisons
   eqBy, cmpBy,
 
-  -- -- * Conversions
+  -- * Conversions
 
-  -- -- ** Lists
-  toList, 
-  -- fromList,
-  fromListN,
+  -- ** Lists
+  toList, fromList, fromListN,
 
   -- -- ** Arrays
   -- toArray, fromArray, toArraySlice, unsafeFromArraySlice,
@@ -199,7 +197,10 @@ module Data.Vector (
   freeze, unsafeFreeze, thaw, copy, unsafeCopy,
   -- unsafeThaw, 
 
-  -- ** Slice
+  -- ** Grow vectors
+  petrify, unsafePetrify,
+
+  -- * Slicing
   VectorSlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
@@ -210,6 +211,7 @@ module Data.Vector (
 -- import Data.Vector.Unsafe
 -- import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Mutable as M
+import qualified Data.Vector.Grow as G
 
 import qualified GHC.Exts as GHC
 import Data.Elevator (Strict (Strict))
@@ -225,21 +227,22 @@ import qualified Prelude
 import Data.Maybe (maybe)
 import qualified Data.Foldable as Foldable
 import qualified Unsafe.Coerce
+import Data.STRef
 
 -- | This vector type is strict in its elements.
 -- if you want to store lazy things inside, you can define your own lazy box type:
 -- data Box a = Box a 
 data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.SmallArray# (Strict a))
+  -- See Note [SmallArray vs Array]
 
 -- Note [SmallArray vs Array]
 -- --------------------------
---
 -- The difference between the two is that Array contains a "card table"
 -- to keep track of mutated pointers in the array (just the top-level)
 -- to speed up certain parts of garbage collection.
 -- 
 -- This is not affected by thunks at all and we expect users to mainly
--- use immutable arrays. Our arrays are only mutable while they are being 
+-- use immutable arrays. Our arrays are only mutable while they are being
 -- constructed. So the card table is not of much use to us.
 --
 -- The card table has overhead: 1 word to store the length and furthermore
@@ -497,7 +500,9 @@ iunfoldrN n f x0 = runST (do
           Just (!y, !x') -> do 
             M.unsafeWrite m i y
             go (i + 1) x'
-          Nothing -> freeze (M.unsafeTakeL i (M.whole m))
+          Nothing -> do
+            M.unsafeShrink m i
+            unsafeFreeze m
       | otherwise = unsafeFreeze m
   go 0 x0)
 
@@ -2071,33 +2076,6 @@ toList v = GHC.build (\c n ->
 -- @
 -- fromListN n xs = 'fromList' ('take' n xs)
 -- @
--- fromListN :: Int -> [a] -> Vector a
--- {-# INLINE fromListN #-}
--- fromListN @a (GHC.I# n) xs = GHC.runRW# (\s0 ->
---   let
---     marr :: GHC.MutableArray# GHC.RealWorld (Strict a)
---     !(# s1, marr #) = GHC.newArray# n (GHC.unsafeCoerce# ()) s0
---     endNormal s = 
---       let !(# _, arr' #) = GHC.unsafeFreezeArray# marr s
---       in UnsafeVector arr'
---   in Prelude.foldr
---     (\x go -> GHC.oneShot (\(MkFromListNSt (# s, i #)) ->
---       case i GHC.<# n of
---         0# -> endNormal s
---         _ ->
---           let !s' = GHC.writeArray# marr i (Strict x) s
---           in go (MkFromListNSt (# s', i GHC.+# 1# #))))
---     (\(MkFromListNSt (# s, i #)) ->
---       case i GHC.==# n of
---         0# -> 
---           let !(# _, arr' #) = GHC.freezeArray# marr 0# i s
---           in UnsafeVector arr'
---         _ -> endNormal s)
---     xs 
---     (MkFromListNSt (# s1, 0# #)))
-
--- data FromListNSt = MkFromListNSt (# GHC.State# GHC.RealWorld, GHC.Int# #)
-
 fromListN :: Int -> [a] -> Vector a
 {-# INLINE fromListN #-}
 fromListN n xs = runST (do
@@ -2107,9 +2085,17 @@ fromListN n xs = runST (do
       if i < n
         then do M.unsafeWrite m i x; go (i + 1)
         else unsafeFreeze m))
-    (\i -> if i == n then unsafeFreeze m else freeze (M.unsafeTakeL i (M.whole m)))
+    (\i -> if i == n 
+      then unsafeFreeze m 
+      else do M.unsafeShrink m i; unsafeFreeze m)
     xs
     0)
+
+fromList :: [a] -> Vector a
+fromList xs = runST (do
+  m <- G.new
+  Prelude.mapM_ (G.pushBack m) xs
+  unsafePetrify m)
 
 -- -- Applicative
 -- -- -----------
@@ -2289,6 +2275,17 @@ copy v@(UnsafeVectorSlice _ _ vn) m@(M.UnsafeSTVectorSlice _ _ mn)
   | mn == vn = unsafeCopy v m
   | otherwise = error "copy: vector slices have different lengths"
 
+petrify :: G.GrowVector s a -> ST s (Vector a)
+petrify (G.UnsafeGrowVector ref) = do
+  G.UnsafeGrowVector_ n m <- readSTRef ref
+  freeze (M.unsafeTakeL n (M.whole m))
+
+unsafePetrify :: G.GrowVector s a -> ST s (Vector a)
+unsafePetrify (G.UnsafeGrowVector ref) = do
+  G.UnsafeGrowVector_ n m <- readSTRef ref
+  M.unsafeShrink m n
+  unsafeFreeze m
+  
 -- -- -- $setup
 -- -- -- >>> :set -Wno-type-defaults
 -- -- -- >>> import Prelude (Char, String, Bool(True, False), min, max, fst, even, undefined, Ord(..), ($), (<>), Num(..))

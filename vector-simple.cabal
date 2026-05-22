@@ -127,6 +127,7 @@ Library
         -- Data.Vector.Strict.Mutable.Unsafe
         -- Data.Vector.Strict.Unsafe
 
+        Data.Vector.Grow
         Data.Vector.Mutable
         Data.Vector
         -- Data.Vector.Mutable.Unsafe
