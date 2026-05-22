@@ -1,6 +1,4 @@
-{-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
-{-# LANGUAGE TypeAbstractions #-}
 {-# OPTIONS_GHC -ddump-simpl -ddump-stg-final -dsuppress-all -dno-typeable-binds -dno-suppress-type-signatures -ddump-to-file #-}
 -- |
 -- Module      : Data.Vector
@@ -14,18 +12,12 @@
 -- Stability   : experimental
 -- Portability : non-portable
 --
--- A library for lazy boxed vectors (that is, polymorphic arrays capable of
--- holding any Haskell value). The vectors come in two flavours:
---
---  * mutable
---
---  * immutable
+-- A library for strict immutable vectors (that is, polymorphic arrays capable
+-- of holding any Haskell value). We also provide mutable and grow vectors but
+-- those optimized for the purpose of constructing an immutable 'Vector'. 
 --
 -- They support a rich interface of both list-like operations and bulk
 -- array operations.
---
--- For unboxed arrays, use "Data.Vector.Unboxed".
-
 module Data.Vector (
   -- * Boxed vectors
   Vector, 
@@ -200,16 +192,10 @@ module Data.Vector (
   -- ** Grow vectors
   petrify, unsafePetrify,
 
-  -- * Slicing
+  -- * Slicing (unstable)
   VectorSlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
--- import Control.Applicative (Applicative)
--- import Data.Primitive.Array
--- import qualified Data.Traversable as Traversable
--- import Data.Vector.Mutable.Unsafe ( MVector )
--- import Data.Vector.Unsafe
--- import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Mutable as M
 import qualified Data.Vector.Grow as G
 
@@ -222,16 +208,20 @@ import Control.Monad.ST
 
 import Prelude
   ( Eq (..), Ord (..), Num (..), Monoid, Monad (..), Bool, Ordering(..), Int, Maybe
-  , (&&), otherwise, error, Maybe (..), Show (..), Either (..), IO)
+  , (&&), otherwise, error, Maybe (..), Show (..), IO, Foldable, flip)
 import qualified Prelude
 import Data.Maybe (maybe)
 import qualified Data.Foldable as Foldable
 import qualified Unsafe.Coerce
-import Data.STRef
+import Data.STRef ( readSTRef )
 
 -- | This vector type is strict in its elements.
--- if you want to store lazy things inside, you can define your own lazy box type:
--- data Box a = Box a 
+-- In a pinch, you can still store lazy elements by defining your own lazy box type
+-- at the cost of one extra indirection:
+-- 
+-- > data Box a = Box a
+--
+-- This type takes up /2 + n/ words of memory, where /n/ is the number of elements.
 data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.SmallArray# (Strict a))
   -- See Note [SmallArray vs Array]
 
@@ -256,7 +246,7 @@ instance Ord a => Ord (Vector a) where
   compare = cmpBy compare
 
 instance Show a => Show (Vector a) where
-  showsPrec p x = Prelude.showParen (p > 10) (Prelude.showString "fromList " Prelude.. showsPrec 11 (toList x))
+  showsPrec p x = showsPrec p (toList x)
 
 instance Prelude.Functor Vector where
   fmap = map
@@ -277,20 +267,6 @@ instance Foldable.Foldable Vector where
   product = product
   toList = toList
   null = null
-
--- -- | /O(1)/ Convert an array to a vector.
--- --
--- -- @since 0.12.2.0
--- fromArray :: Array a -> Vector a
--- {-# INLINE fromArray #-}
--- fromArray arr = UnsafeVector arr
-
--- -- | /O(n)/ Convert a vector to an array.
--- --
--- -- @since 0.12.2.0
--- toArray :: Vector a -> Array a
--- {-# INLINE toArray #-}
--- toArray (UnsafeVector arr) = arr
 
 -- Length information
 -- ------------------
@@ -313,7 +289,7 @@ null v = length v == 0
 {-# INLINE (!) #-}
 v ! i
   | 0 <= i && i < length v = unsafeIndex v i
-  | otherwise = error ("index out of bounds: " Prelude.++ show i)
+  | otherwise = error ("!: index out of bounds")
 
 -- | O(1) Safe indexing.
 (!?) :: Vector a -> Int -> Maybe a
@@ -409,8 +385,6 @@ generate n f = iunfoldrExactN n (\i _ -> let !x = f i in (x, ())) ()
 -- []
 -- >>> V.iterateN 4 (\x -> x <> x) "Hi"
 -- ["Hi","HiHi","HiHiHiHi","HiHiHiHiHiHiHiHi"]
---
--- @since 0.7.1
 iterateN :: Int -> (a -> a) -> a -> Vector a
 {-# INLINE iterateN #-}
 iterateN n f x0 = unfoldrExactN n (\x -> (x, f x)) x0
@@ -443,8 +417,6 @@ unfoldrN n f x = iunfoldrN n (\_ -> f) x
 -- next element and the new seed.
 --
 -- > unfoldrExactN 3 (\n -> (n,n-1)) 10 = <10,9,8>
---
--- @since 0.12.2.0
 unfoldrExactN  :: Int -> (b -> (a, b)) -> b -> Vector a
 {-# INLINE unfoldrExactN #-}
 unfoldrExactN n f x = unfoldrN n (Just Prelude.. f) x
@@ -488,7 +460,10 @@ unfoldrExactN n f x = unfoldrN n (Just Prelude.. f) x
 --   _
 --   }})
 
--- basically all you need to construct a vector
+-- | /O(n)/ Construct a vector with at most @n@ elements by repeatedly applying
+-- the generator function to the current index and a seed. The generator 
+-- function yields 'Just' the next element and the new seed or 'Nothing' if 
+-- there are no more elements.
 iunfoldrN :: Int -> (Int -> b -> Maybe (a, b)) -> b -> Vector a
 {-# INLINE iunfoldrN #-}
 iunfoldrN n f x0 = runST (do
@@ -506,6 +481,9 @@ iunfoldrN n f x0 = runST (do
       | otherwise = unsafeFreeze m
   go 0 x0)
 
+-- | /O(n)/ Construct a vector with exactly @n@ elements by repeatedly applying
+-- the generator function to the current index and a seed. The generator
+-- function yields the next element and the new seed.
 iunfoldrExactN :: Int -> (Int -> b -> (a, b)) -> b -> Vector a
 {-# INLINE iunfoldrExactN #-}
 iunfoldrExactN n f x0 = iunfoldrN n (\i x -> Just (f i x)) x0
@@ -945,8 +923,6 @@ forM_ v f = foldr (\x m -> f x Prelude.>> m) (Prelude.return ()) v
 
 -- | /O(n)/ Apply the monadic action to all elements of the vector and their indices
 -- and ignore the results. Equivalent to @'flip' 'imapM_'@.
---
--- @since 0.12.2.0
 iforM_ :: Monad m => Vector a -> (Int -> a -> m b) -> m ()
 {-# INLINE iforM_ #-}
 iforM_ v f = ifoldr (\i x m -> f i x Prelude.>> m) (Prelude.return ()) v
@@ -1467,8 +1443,6 @@ ifoldr' k z v = go z (length v - 1) where
 -- | /O(n)/ Map each element of the structure to a monoid and combine
 -- the results. It uses the same implementation as the corresponding method
 -- of the 'Foldable' type class.
---
--- @since 0.12.2.0
 foldMap :: (Monoid m) => (a -> m) -> Vector a -> m
 {-# INLINE foldMap #-}
 foldMap f = foldr (\x m -> f x Prelude.<> m) Prelude.mempty
@@ -1477,8 +1451,6 @@ foldMap f = foldr (\x m -> f x Prelude.<> m) Prelude.mempty
 -- implementation as the corresponding method of the 'Foldable' type class.
 -- Note that it's implemented in terms of 'foldl'', so it fuses in most
 -- contGHC.
---
--- @since 0.12.2.0
 foldMap' :: (Monoid m) => (a -> m) -> Vector a -> m
 {-# INLINE foldMap' #-}
 foldMap' f = foldr' (\x m -> f x Prelude.<> m) Prelude.mempty
@@ -1517,7 +1489,7 @@ any :: (a -> Bool) -> Vector a -> Bool
 {-# INLINE any #-}
 any f = foldr (\x xs -> f x Prelude.|| xs) Prelude.False
 
--- | /O(n)/ Check if all elements are 'True'.
+-- | /O(n)/ Check if all elements are 'Prelude.True'.
 --
 -- ==== __Examples__
 --
@@ -1530,7 +1502,7 @@ and :: Vector Bool -> Bool
 {-# INLINE and #-}
 and = foldr (Prelude.&&) Prelude.True
 
--- | /O(n)/ Check if any element is 'True'.
+-- | /O(n)/ Check if any element is 'Prelude.True'.
 --
 -- ==== __Examples__
 --
@@ -1620,8 +1592,6 @@ maximumBy f = foldl1' (\x y -> case f x y of GT -> x; _ -> y)
 -- (2,'a')
 -- >>> V.maximumOn fst $ V.fromList [(1,'a'), (1,'b')]
 -- (1,'a')
---
--- @since 0.13.0.0
 maximumOn :: Ord b => (a -> b) -> Vector a -> a
 {-# INLINE maximumOn #-}
 maximumOn f v = maybe (Prelude.error "maximumOn: empty vector") Prelude.fst (foldl' (\s x ->
@@ -1676,8 +1646,6 @@ minimumBy f = foldl1' (\x y -> case f x y of LT -> x; _ -> y)
 -- (1,'b')
 -- >>> V.minimumOn fst $ V.fromList [(1,'a'), (1,'b')]
 -- (1,'a')
---
--- @since 0.13.0.0
 minimumOn :: Ord b => (a -> b) -> Vector a -> a
 {-# INLINE minimumOn #-}
 minimumOn f v = maybe (Prelude.error "minimumOn: empty vector") Prelude.fst (foldl' (\s x ->
@@ -1886,8 +1854,6 @@ scanl' k z v = iscanl' (\_ -> k) z v
 -- iscanl = G.iscanl
 
 -- | /O(n)/ Left-to-right scan over a vector (strictly) with its index.
---
--- @since 0.12.0.0
 iscanl' :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
 {-# INLINE iscanl' #-}
 iscanl' k z v = iunfoldrExactN (length v + 1) (\i s -> if i == length v then (s,s) else let !x = unsafeIndex v i; s' = k i s x in (s, s')) z
@@ -1914,9 +1880,6 @@ iscanl' k z v = iunfoldrExactN (length v + 1) (\i s -> if i == length v then (s,
 -- scanl1 = G.scanl1
 
 -- | /O(n)/ Initial-value free left-to-right scan over a vector with a strict accumulator.
---
--- Note: Since 0.13, application of this to an empty vector no longer
--- results in an error; instead it produces an empty vector.
 --
 -- ==== __Examples__
 -- >>> import qualified Data.Vector as V
@@ -2023,8 +1986,6 @@ scanl1' k v = iunfoldrExactN (length v) (\i s ->
 
 -- | /O(n)/ Check if two vectors are equal using the supplied equality
 -- predicate.
---
--- @since 0.12.2.0
 eqBy :: (a -> b -> Bool) -> Vector a -> Vector b -> Bool
 {-# INLINE eqBy #-}
 eqBy eq v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in eq x y Prelude.&& xs) Prelude.True v
@@ -2033,8 +1994,6 @@ eqBy eq v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in eq x y Prelude.&& x
 -- vector elements. Comparison works the same as for lists (lexicographically).
 --
 -- > cmpBy compare == compare
---
--- @since 0.12.2.0
 cmpBy :: (a -> b -> Ordering) -> Vector a -> Vector b -> Ordering
 {-# INLINE cmpBy #-}
 cmpBy cmp v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in cmp x y Prelude.<> xs) Prelude.EQ v
@@ -2068,7 +2027,7 @@ fromList xs = runST (do
 -- could be used for DoS-attacks by exhausting the memory if an attacker controls
 -- that parameter.
 --
--- can fuse!
+-- Can fuse!
 --
 -- @
 -- fromListN n xs = 'fromList' ('take' n xs)
@@ -2088,99 +2047,8 @@ fromListN n xs = runST (do
     xs
     0)
 
--- -- Applicative
--- -- -----------
-
--- -- | Construct a vector of the given length by applying the applicative
--- -- action to each index.
--- --
--- -- @since NEXT_VERSION
--- generateA :: Applicative f => Int -> (Int -> f a) -> f (Vector a)
--- generateA n f = runST $ 
-
--- -- | Execute the applicative action the given number of times and store the
--- -- results in a vector.
--- --
--- -- @since NEXT_VERSION
--- replicateA :: (Applicative f) => Int -> f a -> f (Vector a)
--- {-# INLINE replicateA #-}
--- replicateA = G.replicateA
-
--- -- | Apply the applicative action to all elements of the vector, yielding a
--- -- vector of results.
--- --
--- -- @since NEXT_VERSION
--- traverse :: (Applicative f)
---          => (a -> f b) -> Vector a -> f (Vector b)
--- {-# INLINE traverse #-}
--- traverse = G.traverse
-
--- -- | Apply the applicative action to every element of a vector and its
--- -- index, yielding a vector of results.
--- --
--- -- @since NEXT_VERSION
--- itraverse :: (Applicative f)
---           => (Int -> a -> f b) -> Vector a -> f (Vector b)
--- {-# INLINE itraverse #-}
--- itraverse = G.itraverse
-
--- -- | Apply the applicative action to all elements of the vector, yielding a
--- -- vector of results. This is flipped version of 'traverse'.
--- --
--- -- @since NEXT_VERSION
--- forA :: (Applicative f)
---      => Vector a -> (a -> f b) -> f (Vector b)
--- {-# INLINE forA #-}
--- forA = G.forA
-
--- -- | Apply the applicative action to every element of a vector and its
--- --   index, yielding a vector of results. This is flipped version of 'itraverse'.
--- --
--- -- @since NEXT_VERSION
--- iforA :: (Applicative f)
---       => Vector a -> (Int -> a -> f b) -> f (Vector b)
--- {-# INLINE iforA #-}
--- iforA = G.iforA
-
--- -- | Map each element of a structure to an 'Applicative' action, evaluate these
--- --   actions from left to right, and ignore the results.
--- --
--- -- @since NEXT_VERSION
--- traverse_ :: (Applicative f)
---           => (a -> f b) -> Vector a -> f ()
--- {-# INLINE traverse_ #-}
--- traverse_ = G.traverse_
-
--- -- | Map each element of a structure to an 'Applicative' action, evaluate these
--- --   actions from left to right, and ignore the results.
--- --
--- -- @since NEXT_VERSION
--- itraverse_ :: (Applicative f)
---            => (Int -> a -> f b) -> Vector a -> f ()
--- {-# INLINE itraverse_ #-}
--- itraverse_ = G.itraverse_
-
--- -- | Map each element of a structure to an 'Applicative' action, evaluate these
--- --   actions from left to right, and ignore the results.
--- --
--- -- @since NEXT_VERSION
--- forA_ :: (Applicative f)
---       => Vector a -> (a -> f b) -> f ()
--- {-# INLINE forA_ #-}
--- forA_ = G.forA_
-
--- -- | Map each element of a structure to an 'Applicative' action, evaluate these
--- --   actions from left to right, and ignore the results.
--- --
--- -- @since NEXT_VERSION
--- iforA_ :: (Applicative f)
---       => Vector a -> (Int -> a -> f b) -> f ()
--- {-# INLINE iforA_ #-}
--- iforA_ = G.iforA_
-
-
--- Conversions - Mutable vectors
--- -----------------------------
+-- Conversions
+-- -----------
 
 -- | /O(1)/ Unsafely convert a mutable vector to an immutable one without
 -- copying. The mutable vector may not be used after this operation.
@@ -2190,22 +2058,28 @@ unsafeFreeze (M.UnsafeSTVector marr) = GHC.ST (\s ->
   case GHC.unsafeFreezeSmallArray# marr s of
     (# s', arr #) -> (# s', UnsafeVector arr #))
 
-data VectorSlice a = UnsafeVectorSlice {-# UNPACK #-} !(Vector a) !Int !Int
+-- | A slice (subvector) of an immutable vector. This takes up 2 extra words, so /4 + n/ words total.
+data VectorSlice a = UnsafeVectorSlice {-# UNPACK #-} !Int !Int !(Vector a) 
 
+-- | Convert a vector to a slice which covers the whole vector.
 whole :: Vector a -> VectorSlice a
-whole v = UnsafeVectorSlice v 0 (length v)
+whole v = UnsafeVectorSlice 0 (length v) v
 
+-- | Take a prefix of a slice
 unsafeTakeL :: Int -> VectorSlice a -> VectorSlice a
-unsafeTakeL n (UnsafeVectorSlice m off _) = UnsafeVectorSlice m off n
+unsafeTakeL n (UnsafeVectorSlice off _ m) = UnsafeVectorSlice off n m
 
+-- | Take a suffix of a slice
 unsafeTakeR :: Int -> VectorSlice a -> VectorSlice a
-unsafeTakeR n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m (off + len - n) n
+unsafeTakeR n (UnsafeVectorSlice off len m) = UnsafeVectorSlice (off + len - n) n m
 
+-- | Remove a prefix of a slice
 unsafeDropL :: Int -> VectorSlice a -> VectorSlice a
-unsafeDropL n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m (off + n) (len - n)
+unsafeDropL n (UnsafeVectorSlice off len m) = UnsafeVectorSlice (off + n) (len - n) m
 
+-- | Remove a suffix of a slice
 unsafeDropR :: Int -> VectorSlice a -> VectorSlice a
-unsafeDropR n (UnsafeVectorSlice m off len) = UnsafeVectorSlice m off (len - n)
+unsafeDropR n (UnsafeVectorSlice off len m) = UnsafeVectorSlice off (len - n) m
 
 -- | /O(n)/ Yield an immutable copy of the mutable vector.
 freeze :: M.STVectorSlice s a -> ST s (Vector a)
@@ -2214,69 +2088,41 @@ freeze (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# off) (GHC.I# len))
   case GHC.freezeSmallArray# marr off len s of
     (# s', arr #) -> (# s', UnsafeVector arr #))
 
--- -- | /O(1)/ Unsafely convert an immutable vector to a mutable one
--- -- without copying. Note that this is a very dangerous function and
--- -- generally it's only safe to read from the resulting vector. In this
--- -- case, the immutable vector could be used safely as well.
--- --
--- -- Problems with mutation happen because GHC has a lot of freedom to
--- -- introduce sharing. As a result mutable vectors produced by
--- -- @unsafeThaw@ may or may not share the same underlying buffer. For
--- -- example:
--- --
--- -- > foo = do
--- -- >   let vec = V.generate 10 id
--- -- >   mvec <- V.unsafeThaw vec
--- -- >   do_something mvec
--- --
--- -- Here GHC could lift @vec@ outside of foo which means that all calls to
--- -- @do_something@ will use same buffer with possibly disastrous
--- -- results. Whether such aliasing happens or not depends on the program in
--- -- question, optimization levels, and GHC flags.
--- --
--- -- All in all, attempts to modify a vector produced by @unsafeThaw@ fall out of
--- -- domain of software engineering and into realm of black magic, dark
--- -- rituals, and unspeakable horrors. The only advice that could be given
--- -- is: "Don't attempt to mutate a vector produced by @unsafeThaw@ unless you
--- -- know how to prevent GHC from aliasing buffers accidentally. We don't."
--- unsafeThaw :: Vector a -> ST s (M.STVector s a)
--- {-# INLINE unsafeThaw #-}
--- unsafeThaw (UnsafeVector arr) = GHC.ST (\s -> 
---   case GHC.unsafeThawArray# arr s of
---     (# s', marr #) -> (# s', M.UnsafeSTVector marr #))
-
 -- | /O(n)/ Yield a mutable copy of an immutable vector.
 thaw :: VectorSlice a -> ST s (M.STVector s a)
 {-# INLINE thaw #-}
-thaw (UnsafeVectorSlice (UnsafeVector arr) (GHC.I# i) (GHC.I# n)) = GHC.ST (\s -> 
+thaw (UnsafeVectorSlice (GHC.I# i) (GHC.I# n) (UnsafeVector arr)) = GHC.ST (\s -> 
   case GHC.thawSmallArray# arr i n s of
     (# s', marr #) -> (# s', M.UnsafeSTVector marr #))
 
 -- | /O(n)/ Copy an immutable vector into a mutable one.
 unsafeCopy :: VectorSlice a -> M.STVectorSlice s a -> ST s ()
 {-# INLINE unsafeCopy #-}
-unsafeCopy (UnsafeVectorSlice (UnsafeVector arr) (GHC.I# offv) _) (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# offm) (GHC.I# len)) = GHC.ST (\s -> 
+unsafeCopy (UnsafeVectorSlice (GHC.I# offv) _ (UnsafeVector arr)) (M.UnsafeSTVectorSlice (M.UnsafeSTVector marr) (GHC.I# offm) (GHC.I# len)) = GHC.ST (\s -> 
   (# GHC.copySmallArray# arr offv marr offm len s , () #))
 
 -- | /O(n)/ Copy an immutable vector into a mutable one. The two vectors must
 -- have the same length.
 copy :: VectorSlice a -> M.STVectorSlice s a -> ST s ()
 {-# INLINE copy #-}
-copy v@(UnsafeVectorSlice _ _ vn) m@(M.UnsafeSTVectorSlice _ _ mn)
+copy v@(UnsafeVectorSlice _ vn _) m@(M.UnsafeSTVectorSlice _ mn _)
   | mn == vn = unsafeCopy v m
   | otherwise = error "copy: vector slices have different lengths"
 
+-- | /O(n)/ Yield an immutable copy of a grow vector.
 petrify :: G.GrowVector s a -> ST s (Vector a)
 petrify (G.UnsafeGrowVector ref) = do
   G.UnsafeGrowVector_ n m <- readSTRef ref
   freeze (M.unsafeTakeL n (M.whole m))
 
+-- | /O(1)/ Convert a grow vector to an immutable vector. The grow vector must
+-- not be used after this.
 unsafePetrify :: G.GrowVector s a -> ST s (Vector a)
 unsafePetrify (G.UnsafeGrowVector ref) = do
   G.UnsafeGrowVector_ n m <- readSTRef ref
   M.unsafeShrink m n
   unsafeFreeze m
   
--- -- -- $setup
--- -- -- >>> :set -Wno-type-defaults
--- -- -- >>> import Prelude (Char, String, Bool(True, False), min, max, fst, even, undefined, Ord(..), ($), (<>), Num(..))
+-- $setup
+-- >>> :set -Wno-type-defaults
+-- >>> import Prelude (Char, String, Bool(True, False), min, max, fst, even, undefined, Ord(..), ($), (<>), Num(..))

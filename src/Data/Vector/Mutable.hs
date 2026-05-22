@@ -1,8 +1,3 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE RoleAnnotations #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
 {-# LANGUAGE UnliftedDatatypes #-}
 -- |
@@ -18,7 +13,7 @@
 -- Stability   : experimental
 -- Portability : non-portable
 --
--- Mutable boxed vectors.
+-- Strict mutable vectors.
 
 module Data.Vector.Mutable (
   -- * Mutable boxed vectors
@@ -41,18 +36,20 @@ module Data.Vector.Mutable (
   -- -- ** Filling and copying
   -- set, copy, move, unsafeCopy, unsafeMove,
 
-  -- ** Slice
+  -- ** Slice (unstable)
   STVectorSlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
-import Data.Elevator
+import Data.Elevator ( UnliftedType, Strict(..) )
 import qualified GHC.Exts as GHC
 import qualified GHC.ST as GHC
-import Control.Monad.ST
+import Control.Monad.ST ( ST )
 import qualified Unsafe.Coerce
 
-import Prelude( Eq (..), Ord (..), Bool, Ordering(..), Int, Maybe, (<$>), error, otherwise, (&&), (||), pure, Maybe (..), Num (..))
+import Prelude( Eq (..), Ord (..), Bool, Int, Maybe, (<$>), error, otherwise, (&&), pure, Maybe (..), Num (..))
 
+-- | A mutable vector that is strict in its elements.
+-- This type takes up /2 + n/ words of memory, where /n/ is the number of elements.
 data STVector s a = UnsafeSTVector {-# UNPACK #-} !(GHC.SmallMutableArray# s (Strict a))
 
 -- Length information
@@ -84,8 +81,6 @@ data UnliftedUnit = U
 
 -- | Create a mutable vector of the given length. The vector elements
 -- are set to an undefined value, so accessing them will cause a segfault at best.
---
--- @since 0.5
 unsafeNew :: Int -> ST s (STVector s a)
 {-# INLINE unsafeNew #-}
 unsafeNew (GHC.I# n) = GHC.ST (\s ->
@@ -105,13 +100,6 @@ clone (UnsafeSTVector marr) = GHC.ST (\s ->
 
 -- | Yield the element at the given position. Will throw an exception if
 -- the index is out of range.
---
--- ==== __Examples__
---
--- >>> import qualified Data.Vector.Mutable as MV
--- >>> v <- MV.generate 10 (\x -> x*x)
--- >>> MV.read v 3
--- 9
 read :: STVector s a -> Int -> ST s a
 {-# INLINE read #-}
 read m i | 0 <= i && i < length m = unsafeRead m i
@@ -119,17 +107,6 @@ read m i | 0 <= i && i < length m = unsafeRead m i
 
 -- | Yield the element at the given position. Returns 'Nothing' if
 -- the index is out of range.
---
--- @since 0.13
---
--- ==== __Examples__
---
--- >>> import qualified Data.Vector.Mutable as MV
--- >>> v <- MV.generate 10 (\x -> x*x)
--- >>> MV.readMaybe v 3
--- Just 9
--- >>> MV.readMaybe v 13
--- Nothing
 readMaybe :: STVector s a -> Int -> ST s (Maybe a)
 {-# INLINE readMaybe #-}
 readMaybe m i 
@@ -159,12 +136,14 @@ unsafeWrite (UnsafeSTVector m) (GHC.I# i) x = GHC.ST (\s ->
 -- Shrinking
 -- ---------
 
+-- | Shrink the vector. Can throw an exception if the new length is out of 
+-- bounds.
 shrink :: STVector s a -> Int -> ST s ()
 shrink m n
   | 0 <= n && n < length m = unsafeShrink m n
-  | n < 0 = error "shrink: negative new length"
-  | otherwise = error "shrink: new length larger than current length"
+  | otherwise = error "shrink: new length out of bounds"
 
+-- | Shrink the vector without checking if the new size is in bounds. 
 unsafeShrink :: STVector s a -> Int -> ST s ()
 unsafeShrink (UnsafeSTVector m) (GHC.I# n) = GHC.ST (\s ->
   case GHC.shrinkSmallMutableArray# m n s of
@@ -225,20 +204,26 @@ unsafeShrink (UnsafeSTVector m) (GHC.I# n) = GHC.ST (\s ->
 -- Slicing
 -- -------
 
+-- | A slice (subvector) of a mutable vector. This takes up 2 extra words, so /4 + n/ words total.
 data STVectorSlice s a = UnsafeSTVectorSlice {-# UNPACK #-} !(STVector s a) !Int !Int
 
+-- | Convert a vector to a slice which covers the whole vector.
 whole :: STVector s a -> STVectorSlice s a
 whole m = UnsafeSTVectorSlice m 0 (length m)
 
+-- | Take a prefix of a slice
 unsafeTakeL :: Int -> STVectorSlice s a -> STVectorSlice s a
 unsafeTakeL n (UnsafeSTVectorSlice m off _) = UnsafeSTVectorSlice m off n
 
+-- | Take a suffix of a slice
 unsafeTakeR :: Int -> STVectorSlice s a -> STVectorSlice s a
 unsafeTakeR n (UnsafeSTVectorSlice m off len) = UnsafeSTVectorSlice m (off + len - n) n
 
+-- | Remove a prefix of a slice
 unsafeDropL :: Int -> STVectorSlice s a -> STVectorSlice s a
 unsafeDropL n (UnsafeSTVectorSlice m off len) = UnsafeSTVectorSlice m (off + n) (len - n)
 
+-- | Remove a suffix of a slice
 unsafeDropR :: Int -> STVectorSlice s a -> STVectorSlice s a
 unsafeDropR n (UnsafeSTVectorSlice m off len) = UnsafeSTVectorSlice m off (len - n)
 

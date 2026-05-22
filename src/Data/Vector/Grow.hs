@@ -1,13 +1,7 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE RoleAnnotations #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
 {-# LANGUAGE UnliftedDatatypes #-}
-{-# LANGUAGE TypeApplications #-}
 -- |
--- Module      : Data.Vector.Mutable
+-- Module      : Data.Vector.Grow
 -- Copyright   : (c) Roman Leshchinskiy 2008-2010
 --                   Alexey Kuleshevich 2020-2022
 --                   Aleksey Khudyakov 2020-2022
@@ -19,17 +13,22 @@
 -- Stability   : experimental
 -- Portability : non-portable
 --
--- Mutable boxed vectors.
-
+-- Strict growable vectors. In particular the 'pushBack' operation allows you
+-- to create a vector one element at a time without knowing the final vector 
+-- length. It automatically doubles the capacity of the grow vector when 
+-- needed.
+--
+-- This is optimized for constructing an immutable 'Data.Vector.Vector', not for prolongued
+-- use as a mutable vector.
 module Data.Vector.Grow (
-  -- * Mutable boxed vectors
+  -- * Grow vector type
   GrowVector (..),
   GrowVector_ (..),
 
-  -- ** Length information
+  -- * Length information
   length, capacity,
 
-  -- ** Initialisation
+  -- * Initialisation
   new, 
   -- unsafeNew,
   -- clone,
@@ -41,40 +40,41 @@ module Data.Vector.Grow (
   -- * Growing
   pushBack,
 
-  -- -- ** Filling and copying
+  -- -- * Filling and copying
   -- set, copy, move, unsafeCopy, unsafeMove,
-
-  -- -- ** Slice
-  -- GrowVectorSlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
-import Control.Monad.ST
+import Control.Monad.ST ( ST )
 
 import qualified Data.Vector.Mutable as M
 
-import Prelude( Eq (..), Ord (..), Bool, Ordering(..), Int, Maybe, (<$>), error, otherwise, (&&), (||), pure, Maybe (..), Num (..), Monad (..))
+import Prelude( Ord (..), Int, Maybe, (<$>), error, (&&), Maybe (..), Num (..), Monad (..))
 import qualified GHC.Exts as GHC
 import qualified GHC.ST as GHC
-import Data.STRef
-import Unsafe.Coerce (unsafeCoerceUnlifted)
-import Data.Elevator
+import Data.STRef ( newSTRef, readSTRef, writeSTRef, STRef )
+import Data.Elevator ( Strict(Strict) )
 
+-- | The main grow vector type.
 data GrowVector s a = UnsafeGrowVector {-# UNPACK #-}
   !(STRef s (GrowVector_ s a))
 
+-- | Internal grow vector record. Not intended for general use.
+-- Invariant: the Int must be non-negative and smaller than the size of the 
+-- 'Data.Vector.Mutable.STVector' (the latter can change over time).
 data GrowVector_ s a = UnsafeGrowVector_ 
   !Int {-# UNPACK #-} !(M.STVector s a)
 
 -- Length information
 -- ------------------
 
--- | Length of the mutable vector.
+-- | Length (number of elements) in the grow vector.
 length :: GrowVector s a -> ST s Int
 {-# INLINE length #-}
 length (UnsafeGrowVector ref) = do
   UnsafeGrowVector_ n _ <- readSTRef ref
   return n
 
+-- | Total number of slots in the grow vector.
 capacity :: GrowVector s a -> ST s Int
 capacity (UnsafeGrowVector ref) = do
   UnsafeGrowVector_ _ (M.UnsafeSTVector m) <- readSTRef ref
@@ -86,8 +86,6 @@ capacity (UnsafeGrowVector ref) = do
 -- --------------
 
 -- | Create a grow vector of the given length.
---
--- @since 0.5
 new :: ST s (GrowVector s a)
 {-# INLINE new #-}
 new = do
@@ -107,13 +105,6 @@ new = do
 
 -- | Yield the element at the given position. Will throw an exception if
 -- the index is out of range.
---
--- ==== __Examples__
---
--- >>> import qualified Data.Vector.Mutable as MV
--- >>> v <- MV.generate 10 (\x -> x*x)
--- >>> MV.read v 3
--- 9
 read :: GrowVector s a -> Int -> ST s a
 {-# INLINE read #-}
 read (UnsafeGrowVector ref) i = do
@@ -124,17 +115,6 @@ read (UnsafeGrowVector ref) i = do
 
 -- | Yield the element at the given position. Returns 'Nothing' if
 -- the index is out of range.
---
--- @since 0.13
---
--- ==== __Examples__
---
--- >>> import qualified Data.Vector.Mutable as MV
--- >>> v <- MV.generate 10 (\x -> x*x)
--- >>> MV.readMaybe v 3
--- Just 9
--- >>> MV.readMaybe v 13
--- Nothing
 readMaybe :: GrowVector s a -> Int -> ST s (Maybe a)
 {-# INLINE readMaybe #-}
 readMaybe (UnsafeGrowVector ref) i = do
@@ -169,7 +149,10 @@ unsafeWrite (UnsafeGrowVector ref) i x = do
 -- Growing
 -- -------
 
+-- | Write an element to the end (right) of the grow vector. Doubles the 
+-- capacity of the vector if necessary.
 pushBack :: GrowVector s a -> a -> ST s ()
+{-# INLINE pushBack #-}
 pushBack (UnsafeGrowVector ref) x = do
   UnsafeGrowVector_ i m@(M.UnsafeSTVector marr) <- readSTRef ref
   GHC.I# n <- GHC.ST (\s -> 
