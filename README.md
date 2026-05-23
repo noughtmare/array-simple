@@ -3,16 +3,19 @@ The `vector-simple` package
 
 This package tries to provide a similar interface as the Data.Vector and Data.Vector.Mutable modules in the `vector` library, but with these advantages:
 
-* It is much faster to compile and has fewer dependencies. The compilation times on my machine are as follows:
+* Fast to compile and has few dependencies. The compilation times (including dependencies) on my machine are as follows:
 
-  |                 | incl. deps | excl. deps |
-  |-----------------|-----------:|-----------:|
-  |`vector`         |        80s |        70s | 
-  |`vector-simple`  |         5s |         4s |
+  |                  | compile time |
+  |------------------|-------------:|
+  | `array`          |           8s |
+  | `contiguous`     |          15s |
+  | `vector`         |          70s | 
+  | `vector-simple`  |           5s |
+  | `primitive`      |           7s |
 
-* Our vector type is strict in its elements. This is ensured by data-elevator, so GHC will know that any value you read from our vectors is already fully evaluated, saving an eval check.
-* The implementation is much more straightforward. It should be easy to check the source in the Haddocks and the Core dumps GHC generates should be much more readable.
-* Our vector type has less overhead (the total size is: 1 word for the header, 1 word for the length, and then 1 word for each item). It is now suitable for small arrays of 0-100 elements.
+* Our vector type is strict in its elements.
+* The implementation is straightforward. It should be easy to check the source in the Haddocks and the Core dumps GHC generates should be much more readable.
+* Our vector type has less overhead (4 words). It is now suitable for small arrays of 0-100 elements.
 * We only provide functions which are as effecient as you would expect. 
 
 This does come at some costs:

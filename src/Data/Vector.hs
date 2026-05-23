@@ -152,16 +152,7 @@ module Data.Vector (
   -- sequence, sequence_,
 
   -- * Scans
-  -- prescanl, 
-  prescanl',
-  -- postscanl, 
-  postscanl',
-  -- scanl, 
-  scanl', 
-  -- scanl1, 
-  scanl1',
-  -- iscanl, 
-  iscanl',
+  prescanl, postscanl, scanl, scanl1, iscanl, 
   -- prescanr, prescanr',
   -- postscanr, postscanr',
   -- scanr, scanr', scanr1, scanr1',
@@ -221,7 +212,27 @@ import Data.STRef ( readSTRef )
 -- 
 -- > data Box a = Box a
 --
--- This type takes up /2 + n/ words of memory, where /n/ is the number of elements.
+-- This takes less space than lists if there are 3 elements or more.
+-- Asymptotically this takes 1/3 the space of a list.
+--
+-- This always has 3 fewer words than vectors from the vector package.
+--
+-- The memory representation of a 'Vector' is:
+--
+-- > ╭─────────────┬───╮  ╭────────┬──────┬────────────╮
+-- > │ Constructor │ * ┼─➤│ Header │ Size │ Payload... │
+-- > ╰─────────────┴───╯  ╰────────┴──────┴────────────╯
+--
+-- And its overhead is the following:
+--
+-- * 'UnsafeVector' constructor: 1 word
+-- * Pointer to 'SmallArray#': 1 word
+-- * 'SmallArray#' Header: 1 word
+-- * 'SmallArray#' Size: 1 word
+-- * Payload: 1 word per element
+--
+-- Where a word is the unit of heap allocation,
+-- measuring 8 bytes on 64-bit systems, and 4 bytes on 32-bit systems.
 data Vector a = UnsafeVector {-# UNPACK #-} !(GHC.SmallArray# (Strict a))
   -- See Note [SmallArray vs Array]
 
@@ -1786,112 +1797,69 @@ foldM k z = foldl' (\m y -> do x <- m; k x y) (Prelude.return z)
 -- Scans
 -- -----
 
--- -- | /O(n)/ Left-to-right prescan.
--- --
--- -- @
--- -- prescanl f z = 'init' . 'scanl' f z
--- -- @
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.prescanl (+) 0 (V.fromList [1,2,3,4])
--- -- [0,1,3,6]
--- prescanl :: (a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE prescanl #-}
--- prescanl = G.prescanl
+-- | /O(n)/ Left-to-right prescan (with strict accumulator).
+--
+-- @
+-- prescanl f z = 'init' . 'scanl' f z
+-- @
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.prescanl (+) 0 (V.fromList [1,2,3,4])
+-- [0,1,3,6]
+prescanl :: (a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE prescanl #-}
+prescanl k z v = iunfoldrExactN (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in (s, s')) z
 
--- | /O(n)/ Left-to-right prescan with strict accumulator.
-prescanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
-{-# INLINE prescanl' #-}
-prescanl' k z v = iunfoldrExactN (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in (s, s')) z
+-- | /O(n)/ Left-to-right postscan (with strict accumulator).
+--
+-- @
+-- postscanl f z = 'tail' . 'scanl' f z
+-- @
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.postscanl (+) 0 (V.fromList [1,2,3,4])
+-- [1,3,6,10]
+postscanl :: (a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE postscanl #-}
+postscanl k z v = iunfoldrExactN (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in (s', s')) z
 
--- -- | /O(n)/ Left-to-right postscan.
--- --
--- -- @
--- -- postscanl f z = 'tail' . 'scanl' f z
--- -- @
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.postscanl (+) 0 (V.fromList [1,2,3,4])
--- -- [1,3,6,10]
--- postscanl :: (a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE postscanl #-}
--- postscanl = G.postscanl
-
--- | /O(n)/ Left-to-right postscan with strict accumulator.
-postscanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
-{-# INLINE postscanl' #-}
-postscanl' k z v = iunfoldrExactN (length v) (\i s -> let !x = unsafeIndex v i; s' = k s x in (s', s')) z
-
--- -- | /O(n)/ Left-to-right scan.
--- --
--- -- > scanl f z <x1,...,xn> = <y1,...,y(n+1)>
--- -- >   where y1 = z
--- -- >         yi = f y(i-1) x(i-1)
--- --
--- -- ==== __Examples__
--- --
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.scanl (+) 0 (V.fromList [1,2,3,4])
--- -- [0,1,3,6,10]
--- scanl :: (a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE scanl #-}
--- scanl = G.scanl
-
--- | /O(n)/ Left-to-right scan with strict accumulator.
-scanl' :: (a -> b -> a) -> a -> Vector b -> Vector a
-{-# INLINE scanl' #-}
-scanl' k z v = iscanl' (\_ -> k) z v
-
--- -- | /O(n)/ Left-to-right scan over a vector with its index.
--- --
--- -- @since 0.12.0.0
--- iscanl :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
--- {-# INLINE iscanl #-}
--- iscanl = G.iscanl
+-- | /O(n)/ Left-to-right scan (with strict accumulator).
+--
+-- > scanl f z <x1,...,xn> = <y1,...,y(n+1)>
+-- >   where y1 = z
+-- >         yi = f y(i-1) x(i-1)
+--
+-- ==== __Examples__
+--
+-- >>> import qualified Data.Vector as V
+-- >>> V.scanl (+) 0 (V.fromList [1,2,3,4])
+-- [0,1,3,6,10]
+scanl :: (a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE scanl #-}
+scanl k z v = iscanl (\_ -> k) z v
 
 -- | /O(n)/ Left-to-right scan over a vector (strictly) with its index.
-iscanl' :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
-{-# INLINE iscanl' #-}
-iscanl' k z v = iunfoldrExactN (length v + 1) (\i s -> if i == length v then (s,s) else let !x = unsafeIndex v i; s' = k i s x in (s, s')) z
-
--- -- | /O(n)/ Initial-value free left-to-right scan over a vector.
--- --
--- -- > scanl f <x1,...,xn> = <y1,...,yn>
--- -- >   where y1 = x1
--- -- >         yi = f y(i-1) xi
--- --
--- -- Note: Since 0.13, application of this to an empty vector no longer
--- -- results in an error; instead it produces an empty vector.
--- --
--- -- ==== __Examples__
--- -- >>> import qualified Data.Vector as V
--- -- >>> V.scanl1 min $ V.fromListN 5 [4,2,4,1,3]
--- -- [4,2,2,1,1]
--- -- >>> V.scanl1 max $ V.fromListN 5 [1,3,2,5,4]
--- -- [1,3,3,5,5]
--- -- >>> V.scanl1 min (V.empty :: V.Vector Int)
--- -- []
--- scanl1 :: (a -> a -> a) -> Vector a -> Vector a
--- {-# INLINE scanl1 #-}
--- scanl1 = G.scanl1
+iscanl :: (Int -> a -> b -> a) -> a -> Vector b -> Vector a
+{-# INLINE iscanl #-}
+iscanl k z v = iunfoldrExactN (length v + 1) (\i s -> if i == length v then (s,s) else let !x = unsafeIndex v i; s' = k i s x in (s, s')) z
 
 -- | /O(n)/ Initial-value free left-to-right scan over a vector with a strict accumulator.
 --
 -- ==== __Examples__
 -- >>> import qualified Data.Vector as V
--- >>> V.scanl1' min $ V.fromListN 5 [4,2,4,1,3]
+-- >>> V.scanl1 min $ V.fromListN 5 [4,2,4,1,3]
 -- [4,2,2,1,1]
--- >>> V.scanl1' max $ V.fromListN 5 [1,3,2,5,4]
+-- >>> V.scanl1 max $ V.fromListN 5 [1,3,2,5,4]
 -- [1,3,3,5,5]
--- >>> V.scanl1' min (V.empty :: V.Vector Int)
+-- >>> V.scanl1 min (V.empty :: V.Vector Int)
 -- []
-scanl1' :: (a -> a -> a) -> Vector a -> Vector a
-{-# INLINE scanl1' #-}
-scanl1' k v = iunfoldrExactN (length v) (\i s ->
+scanl1 :: (a -> a -> a) -> Vector a -> Vector a
+{-# INLINE scanl1 #-}
+scanl1 k v = iunfoldrExactN (length v) (\i s ->
   let !x = unsafeIndex v i in
   case s of
     Nothing -> (x,Just x)
