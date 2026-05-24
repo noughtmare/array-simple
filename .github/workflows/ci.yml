@@ -81,21 +81,21 @@ jobs:
     - name: Make sdist
       run: |
         mkdir sdist
-        cabal sdist vector            -o sdist
-        cabal sdist vector-stream     -o sdist
-        cabal sdist vector-bench-papi -o sdist
+        cabal sdist array            -o sdist
+        cabal sdist array-stream     -o sdist
+        cabal sdist array-bench-papi -o sdist
     - name: Unpack
       run: |
         mkdir unpacked
-        for NM in sdist/vector*tar.gz; do
+        for NM in sdist/array*tar.gz; do
             tar -C unpacked -xzf $NM
         done
         echo "packages:"            >> unpacked/cabal.project
-        echo "    vector-*/*.cabal" >> unpacked/cabal.project
+        echo "    array-*/*.cabal" >> unpacked/cabal.project
     # ----------------
     - name: cabal check
       run: |
-        for nm in vector-*; do
+        for nm in array-*; do
             echo Checking $nm
             (cd "$nm" && cabal -vnormal check)
         done

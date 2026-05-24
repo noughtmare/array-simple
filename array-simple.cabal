@@ -1,6 +1,6 @@
 cabal-version:  3.0
 build-type:     Simple
-name:           vector-simple
+name:           array-simple
 version:        0.1.0.0
 -- don't forget to update the changelog file!
 license:        BSD-3-Clause
@@ -13,16 +13,16 @@ copyright:      (c) Roman Leshchinskiy 2008-2010,
                     Andrew Lelechenko 2020-2022,
                     Jaro Reinders 2026
 
-homepage:       https://github.com/noughtmare/vector-simple
-bug-reports:    https://github.com/noughtmare/vector-simple/issues
+homepage:       https://github.com/noughtmare/array-simple
+bug-reports:    https://github.com/noughtmare/array-simple/issues
 category:       Data, Data Structures
 synopsis:       Simple Efficient Arrays
 description:
         An efficient and simple implementation of @Int@-indexed arrays.
 
-        In contrast to vector, the arrays in this package are strict in their
+        In contrast to array, the arrays in this package are strict in their
         elements. There is also no fusion framework, so each (safe) operation 
-        on immutable vectors yields a fresh copy.
+        on immutable arrays yields a fresh copy.
 
 
 extra-doc-files: changelog.md
@@ -30,12 +30,12 @@ extra-doc-files: changelog.md
 
 source-repository head
   type:     git
-  location: https://github.com/noughtmare/vector-simple.git
+  location: https://github.com/noughtmare/array-simple.git
 
 library
-  exposed-modules:  Data.Vector.Grow
-                    Data.Vector.Mutable
-                    Data.Vector
+  exposed-modules:  Data.Array.Simple.Grow
+                    Data.Array.Simple.Mutable
+                    Data.Array.Simple
   build-depends:    base >= 4.18 && < 4.23
                   , data-elevator >= 0.3 && < 0.4
   hs-source-dirs:   src
