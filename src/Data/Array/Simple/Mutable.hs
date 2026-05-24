@@ -40,17 +40,16 @@ module Data.Array.Simple.Mutable (
   STArraySlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
-import Data.Elevator ( UnliftedType, Strict(..) )
 import qualified GHC.Exts as GHC
 import qualified GHC.ST as GHC
 import Control.Monad.ST ( ST )
 import qualified Unsafe.Coerce
 
-import Prelude( Eq (..), Ord (..), Bool, Int, Maybe, (<$>), error, otherwise, (&&), pure, Maybe (..), Num (..))
+import Prelude( Eq (..), Ord (..), Bool, Int, Maybe, error, otherwise, (&&), pure, Maybe (..), Num (..), Monad (..))
 
 -- | A mutable array that is strict in its elements.
 -- This type takes up /2 + n/ words of memory, where /n/ is the number of elements.
-data STArray s a = UnsafeSTArray {-# UNPACK #-} !(GHC.SmallMutableArray# s (Strict a))
+data STArray s a = UnsafeSTArray {-# UNPACK #-} !(GHC.SmallMutableArray# s a)
 
 -- Length information
 -- ------------------
@@ -71,20 +70,18 @@ null m = length m == 0
 -- | Create a mutable array of the given length.
 new :: Int -> a -> ST s (STArray s a)
 {-# INLINE new #-}
-new (GHC.I# n) x = GHC.ST (\s -> 
-  case GHC.newSmallArray# n (Strict x) s of { (# s', marr #) ->
+new (GHC.I# n) !x = GHC.ST (\s -> 
+  case GHC.newSmallArray# n x s of { (# s', marr #) ->
     (# s', UnsafeSTArray marr #)
   })
-
-type UnliftedUnit :: UnliftedType
-data UnliftedUnit = U
 
 -- | Create a mutable array of the given length. The array elements
 -- are set to an undefined value, so accessing them will cause a segfault at best.
 unsafeNew :: Int -> ST s (STArray s a)
 {-# INLINE unsafeNew #-}
 unsafeNew (GHC.I# n) = GHC.ST (\s ->
-  case GHC.newSmallArray# n (Unsafe.Coerce.unsafeCoerceUnlifted U) s of { (# s', marr #) ->
+  let !x = Unsafe.Coerce.unsafeCoerce () in
+  case GHC.newSmallArray# n x s of { (# s', marr #) ->
     (# s', UnsafeSTArray marr #)
   })
 
@@ -110,7 +107,9 @@ read m i | 0 <= i && i < length m = unsafeRead m i
 readMaybe :: STArray s a -> Int -> ST s (Maybe a)
 {-# INLINE readMaybe #-}
 readMaybe m i 
-  | 0 <= i && i < length m = Just <$> unsafeRead m i
+  | 0 <= i && i < length m = do
+    !x <- unsafeRead m i
+    return (Just x)
   | otherwise = pure Nothing
 
 -- | Replace the element at the given position.
@@ -125,13 +124,13 @@ unsafeRead :: STArray s a -> Int -> ST s a
 {-# INLINE unsafeRead #-}
 unsafeRead (UnsafeSTArray m) (GHC.I# i) = GHC.ST (\s -> 
   case GHC.readSmallArray# m i s of
-    (# s', Strict x #) -> (# s', x #))
+    (# s', !x #) -> (# s', x #))
 
 -- | Replace the element at the given position. No bounds checks are performed.
 unsafeWrite :: STArray s a -> Int -> a -> ST s ()
 {-# INLINE unsafeWrite #-}
-unsafeWrite (UnsafeSTArray m) (GHC.I# i) x = GHC.ST (\s ->
-  (# GHC.writeSmallArray# m i (Strict x) s , () #))
+unsafeWrite (UnsafeSTArray m) (GHC.I# i) !x = GHC.ST (\s ->
+  (# GHC.writeSmallArray# m i x s , () #))
 
 -- Shrinking
 -- ---------

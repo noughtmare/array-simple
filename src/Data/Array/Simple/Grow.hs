@@ -48,11 +48,11 @@ import Control.Monad.ST ( ST )
 
 import qualified Data.Array.Simple.Mutable as M
 
-import Prelude( Ord (..), Int, Maybe, (<$>), error, (&&), Maybe (..), Num (..), Monad (..))
+import Prelude( Ord (..), Int, Maybe, error, (&&), Maybe (..), Num (..), Monad (..))
 import qualified GHC.Exts as GHC
 import qualified GHC.ST as GHC
 import Data.STRef ( newSTRef, readSTRef, writeSTRef, STRef )
-import Data.Elevator ( Strict(Strict) )
+import qualified Unsafe.Coerce
 
 -- | The main grow array type.
 data GrowArray s a = UnsafeGrowArray {-# UNPACK #-}
@@ -120,7 +120,9 @@ readMaybe :: GrowArray s a -> Int -> ST s (Maybe a)
 readMaybe (UnsafeGrowArray ref) i = do
   UnsafeGrowArray_ n m <- readSTRef ref
   if 0 <= i && i < n
-    then Just <$> M.unsafeRead m i
+    then do
+      !x <- M.unsafeRead m i
+      return (Just x)
     else return Nothing
 
 -- | Replace the element at the given position.
@@ -153,14 +155,15 @@ unsafeWrite (UnsafeGrowArray ref) i x = do
 -- capacity of the array if necessary.
 pushBack :: GrowArray s a -> a -> ST s ()
 {-# INLINE pushBack #-}
-pushBack (UnsafeGrowArray ref) x = do
+pushBack (UnsafeGrowArray ref) !x = do
   UnsafeGrowArray_ i m@(M.UnsafeSTArray marr) <- readSTRef ref
   GHC.I# n <- GHC.ST (\s -> 
     case GHC.getSizeofSmallMutableArray# marr s of
       (# s', n #) -> (# s', GHC.I# n #))
+  let !tmp = Unsafe.Coerce.unsafeCoerce ()
   m' <- if i < GHC.I# n then return m else do
     GHC.ST (\s ->
-      case GHC.newSmallArray# (2# GHC.*# n) (Strict x) s of { (# s', marr' #) ->
+      case GHC.newSmallArray# (2# GHC.*# n) tmp s of { (# s', marr' #) ->
       case GHC.copySmallMutableArray# marr 0# marr' 0# n s' of { s'' ->
       (# s'', M.UnsafeSTArray marr' #)}})
   M.unsafeWrite m' i x

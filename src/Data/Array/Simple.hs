@@ -187,15 +187,15 @@ import qualified Data.Array.Simple.Mutable as M
 import qualified Data.Array.Simple.Grow as G
 
 import qualified GHC.Exts as GHC
-import Data.Elevator (Strict (Strict))
 
 -- import Control.Monad.Primitive
 import qualified GHC.ST as GHC
 import Control.Monad.ST
 
 import Prelude
-  ( Eq (..), Ord (..), Num (..), Monoid, Monad (..), Bool, Ordering(..), Int, Maybe
-  , (&&), otherwise, error, Maybe (..), Show (..), IO, Foldable, flip)
+  ( Eq (..), Ord (..), Num (..), Monoid (..), Monad (..), Bool, Ordering(..), Int, Maybe
+  , (&&), otherwise, error, Maybe (..), Show (..), IO, Foldable, flip, (||), Bool (..), (&&), not
+  , fromIntegral, Functor, Semigroup (..), fst)
 import qualified Prelude
 import Data.Maybe (maybe)
 import qualified Data.Foldable as Foldable
@@ -229,7 +229,7 @@ import Data.STRef ( readSTRef )
 --
 -- Where a word is the unit of heap allocation,
 -- measuring 8 bytes on 64-bit systems, and 4 bytes on 32-bit systems.
-data Array a = UnsafeArray {-# UNPACK #-} !(GHC.SmallArray# (Strict a))
+data Array a = UnsafeArray {-# UNPACK #-} !(GHC.SmallArray# a)
   -- See Note [SmallArray vs Array]
 
 -- Note [SmallArray vs Array]
@@ -255,7 +255,7 @@ instance Ord a => Ord (Array a) where
 instance Show a => Show (Array a) where
   showsPrec p x = showsPrec p (toList x)
 
-instance Prelude.Functor Array where
+instance Functor Array where
   fmap = map
 
 instance Foldable.Foldable Array where
@@ -302,7 +302,7 @@ v ! i
 (!?) :: Array a -> Int -> Maybe a
 {-# INLINE (!?) #-}
 v !? i
-  | 0 <= i && i < length v = Just (unsafeIndex v i)
+  | 0 <= i && i < length v = let !x = unsafeIndex v i in Just x
   | otherwise = Nothing
 
 -- | /O(1)/ First element.
@@ -318,7 +318,7 @@ last v = v ! (length v - 1)
 -- | /O(1)/ Unsafe indexing without bounds checking.
 unsafeIndex :: Array a -> Int -> a
 {-# INLINE unsafeIndex #-}
-unsafeIndex (UnsafeArray arr) (GHC.I# i) = let (# Strict x #) = GHC.indexSmallArray# arr i in x
+unsafeIndex (UnsafeArray arr) (GHC.I# i) = let (# !x #) = GHC.indexSmallArray# arr i in x
 
 -- | /O(1)/ First element, without checking if the array is empty.
 unsafeHead :: Array a -> a
@@ -342,7 +342,7 @@ slice :: Int   -- ^ @i@ starting index
 {-# INLINE slice #-}
 slice i n v
   | 0 <= i && 0 < n && i + n < length v = unsafeSlice i n v
-  | otherwise = error ("Slice arguments out of bounds: " Prelude.++ show (i, n))
+  | otherwise = error ("Slice arguments out of bounds: " <> show (i, n))
 
 -- | /O(1)/ Yield a slice of the array without copying. The array must
 -- contain at least @i+n@ elements, but this is not checked.
@@ -426,7 +426,7 @@ unfoldrN n f x = iunfoldrN n (\_ -> f) x
 -- > unfoldrExactN 3 (\n -> (n,n-1)) 10 = <10,9,8>
 unfoldrExactN  :: Int -> (b -> (a, b)) -> b -> Array a
 {-# INLINE unfoldrExactN #-}
-unfoldrExactN n f x = unfoldrN n (Just Prelude.. f) x
+unfoldrExactN n f x0 = unfoldrN n (\x -> let !y = f x in Just y) x0
 
 -- -- -- | /O(n)/ Construct a array by repeatedly applying the monadic
 -- -- -- generator function to a seed. The generator function yields 'Just'
@@ -473,7 +473,7 @@ unfoldrExactN n f x = unfoldrN n (Just Prelude.. f) x
 -- there are no more elements.
 iunfoldrN :: Int -> (Int -> b -> Maybe (a, b)) -> b -> Array a
 {-# INLINE iunfoldrN #-}
-iunfoldrN n f x0 = runST (do
+iunfoldrN n f !x0 = runST (do
   m <- M.unsafeNew n
   let
     go i x
@@ -509,12 +509,12 @@ iunfoldrExactN n f x0 = iunfoldrN n (\i x -> Just (f i x)) x0
 -- -- This rule makes sure that fmap Just above gets optimized properly after unfoldrNM 
 -- -- is inlined:
 -- {-# RULES
--- "fmap/>>=" forall f x k. Prelude.fmap f x Prelude.>>= k = x Prelude.>>= \x' -> k (f x')
--- ">>=/>>=" forall x y z. (x Prelude.>>= y) Prelude.>>= z = x Prelude.>>= \x' -> y x' Prelude.>>= z
--- ">>=/return" forall x. x Prelude.>>= Prelude.return = x
--- "return/>>=" forall x f. Prelude.return x Prelude.>>= f = f x
--- ">>=/pure" forall x. x Prelude.>>= Prelude.pure = x
--- "pure/>>=" forall x k. Prelude.pure x Prelude.>>= k = k x
+-- "fmap/>>=" forall f x k. fmap f x >>= k = x >>= \x' -> k (f x')
+-- ">>=/>>=" forall x y z. (x >>= y) >>= z = x >>= \x' -> y x' >>= z
+-- ">>=/return" forall x. x >>= return = x
+-- "return/>>=" forall x f. return x >>= f = f x
+-- ">>=/pure" forall x. x >>= pure = x
+-- "pure/>>=" forall x k. pure x >>= k = k x
 -- #-}
 
 -- -- | /O(n)/ Construct a array with @n@ elements by repeatedly applying the
@@ -543,7 +543,7 @@ iunfoldrExactN n f x0 = iunfoldrN n (\i x -> Just (f i x)) x0
 -- > enumFromN 5 3 = <5,6,7>
 enumFromN :: Num a => a -> Int -> Array a
 {-# INLINE enumFromN #-}
-enumFromN x0 n = generate n (\i -> x0 + Prelude.fromIntegral i)
+enumFromN x0 n = generate n (\i -> x0 + fromIntegral i)
 
 -- | /O(n)/ Yield a array of the given length, containing the values @x@, @x+y@,
 -- @x+y+y@ etc. This operations is usually more efficient than 'enumFromThenTo'.
@@ -551,7 +551,7 @@ enumFromN x0 n = generate n (\i -> x0 + Prelude.fromIntegral i)
 -- > enumFromStepN 1 2 5 = <1,3,5,7,9>
 enumFromStepN :: Num a => a -> a -> Int -> Array a
 {-# INLINE enumFromStepN #-}
-enumFromStepN x0 y n = generate n (\i -> x0 + y * Prelude.fromIntegral i)
+enumFromStepN x0 y n = generate n (\i -> x0 + y * fromIntegral i)
 
 -- -- | /O(n)/ Enumerate values from @x@ to @y@.
 -- --
@@ -586,7 +586,7 @@ infixr 5 ++
 -- | /O(m+n)/ Concatenate two arrays.
 (++) :: Array a -> Array a -> Array a
 {-# INLINE (++) #-}
-v ++ w = generate (length v + length w) (\i -> if i < length v then v ! i else w ! i)
+v ++ w = generate (length v + length w) (\i -> if i < length v then unsafeIndex v i else unsafeIndex w i)
 
 -- | /O(n)/ Concatenate all arrays in the list.
 -- TODO: this could probably be done in a fusible way
@@ -607,15 +607,15 @@ concat (v0:vs0) = unfoldrExactN (Prelude.sum (Prelude.map length (v0:vs0))) step
 -- -- results in a array.
 -- replicateM :: Monad m => Int -> m a -> m (Array a)
 -- {-# INLINE replicateM #-}
--- replicateM n m = unfoldrExactNM n (\() -> do x <- m; Prelude.return (x, ())) ()
--- {-# SPECIALIZE replicateM :: Int -> Prelude.IO a -> Prelude.IO (Array a) #-}
+-- replicateM n m = unfoldrExactNM n (\() -> do x <- m; return (x, ())) ()
+-- {-# SPECIALIZE replicateM :: Int -> IO a -> IO (Array a) #-}
 
 -- -- | /O(n)/ Construct a array of the given length by applying the monadic
 -- -- action to each index.
 -- generateM :: Monad m => Int -> (Int -> m a) -> m (Array a)
 -- {-# INLINE generateM #-}
--- generateM n f = iunfoldrNM n (\i () -> do x <- f i; Prelude.return (Just (x, ()))) ()
--- {-# SPECIALIZE generateM :: Int -> (Int -> Prelude.IO a) -> Prelude.IO (Array a) #-}
+-- generateM n f = iunfoldrNM n (\i () -> do x <- f i; return (Just (x, ()))) ()
+-- {-# SPECIALIZE generateM :: Int -> (Int -> IO a) -> IO (Array a) #-}
 
 -- -- | /O(n)/ Apply the monadic function \(\max(n - 1, 0)\) times to an initial value, producing a array
 -- -- of length \(\max(n, 0)\). The 0th element will contain the initial value, which is why there
@@ -627,9 +627,9 @@ concat (v0:vs0) = unfoldrExactN (Prelude.sum (Prelude.map length (v0:vs0))) step
 -- iterateNM :: Monad m => Int -> (a -> m a) -> a -> m (Array a)
 -- {-# INLINE iterateNM #-}
 -- -- TODO: this doesn't produce optimal Core:
--- iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; Prelude.return (x' `Prelude.seq` Just (x, x'))) x0
+-- iterateNM n f x0 = unfoldrNM n (\ !x -> do x' <- f x; return (x' `seq` Just (x, x'))) x0
 -- -- TODO: all monadic functions should have specialize for IO:
--- {-# SPECIALIZE iterateNM :: Int -> (a -> Prelude.IO a) -> a -> Prelude.IO (Array a) #-}
+-- {-# SPECIALIZE iterateNM :: Int -> (a -> IO a) -> a -> IO (Array a) #-}
 -- -- TODO: consider if we really want this:
 -- {-# SPECIALIZE iterateNM :: Int -> (a -> Identity a) -> a -> Identity (Array a) #-}
 
@@ -858,7 +858,7 @@ map f v = imap (\_ -> f) v
 -- | /O(n)/ Apply a function to every element of a array and its index.
 imap :: (Int -> a -> b) -> Array a -> Array b
 {-# INLINE imap #-}
-imap f v = generate (length v) (\i -> f i (unsafeIndex v i))
+imap f v = generate (length v) (\i -> let !x = unsafeIndex v i in f i x)
 
 -- -- | Map a function over a array and concatenate the results.
 -- concatMap :: (a -> Array b) -> Array a -> Array b
@@ -881,59 +881,43 @@ imap f v = generate (length v) (\i -> f i (unsafeIndex v i))
 -- {-# INLINE mapM #-}
 -- mapM f v = _
   
---  -- iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f x; Prelude.return (Just (y, ()))) ()
--- {-# SPECIALIZE mapM :: (a -> Prelude.IO b) -> Array a -> Prelude.IO (Array b) #-}
+--  -- iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f x; return (Just (y, ()))) ()
+-- {-# SPECIALIZE mapM :: (a -> IO b) -> Array a -> IO (Array b) #-}
 
 -- -- | /O(n)/ Apply the monadic action to every element of a array and its
 -- -- index, yielding a array of results.
 -- imapM :: Monad m => (Int -> a -> m b) -> Array a -> m (Array b)
 -- {-# INLINE imapM #-}
--- imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f i x; Prelude.return (Just (y, ()))) ()
--- {-# SPECIALIZE imapM :: (Int -> a -> Prelude.IO b) -> Array a -> Prelude.IO (Array b) #-}
+-- imapM f v = iunfoldrNM (length v) (\i () -> let !x = unsafeIndex v i in do y <- f i x; return (Just (y, ()))) ()
+-- {-# SPECIALIZE imapM :: (Int -> a -> IO b) -> Array a -> IO (Array b) #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of a array and ignore the
 -- results.
 mapM_ :: Monad m => (a -> m b) -> Array a -> m ()
 {-# INLINE mapM_ #-}
-mapM_ f v = foldr (\ !x xs -> f x Prelude.>> xs) (Prelude.return ()) v
-{-# SPECIALIZE mapM_ :: (a -> Prelude.IO b) -> Array a -> Prelude.IO () #-}
+mapM_ f = imapM_ (\_ -> f)
+{-# SPECIALIZE mapM_ :: (a -> IO b) -> Array a -> IO () #-}
 
 -- | /O(n)/ Apply the monadic action to every element of a array and its
 -- index, ignoring the results.
 imapM_ :: Monad m => (Int -> a -> m b) -> Array a -> m ()
 {-# INLINE imapM_ #-}
-imapM_ f v = ifoldr (\i x xs -> x `Prelude.seq` (f i x Prelude.>> xs)) (Prelude.return ()) v
-{-# SPECIALIZE imapM_ :: (Int -> a -> Prelude.IO b) -> Array a -> Prelude.IO () #-}
-
--- -- | /O(n)/ Apply the monadic action to all elements of the array, yielding a
--- -- array of results. Equivalent to @flip 'mapM'@.
--- forM :: Monad m => Array a -> (a -> m b) -> m (Array b)
--- {-# INLINE forM #-}
--- forM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f x)
--- {-# SPECIALIZE forM :: Array a -> (a -> Prelude.IO b) -> Prelude.IO (Array b) #-}
+imapM_ f = ifoldr (\ !i !x xs -> f i x >> xs) (return ())
+{-# SPECIALIZE imapM_ :: (Int -> a -> IO b) -> Array a -> IO () #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of a array and ignore the
 -- results. Equivalent to @flip 'mapM_'@.
 forM_ :: Monad m => Array a -> (a -> m b) -> m ()
 {-# INLINE forM_ #-}
-forM_ v f = foldr (\x m -> f x Prelude.>> m) (Prelude.return ()) v
-{-# SPECIALIZE forM_ :: Array a -> (a -> Prelude.IO b) -> Prelude.IO () #-}
-
--- -- | /O(n)/ Apply the monadic action to all elements of the array and their indices, yielding a
--- -- array of results. Equivalent to @'flip' 'imapM'@.
--- --
--- -- @since 0.12.2.0
--- iforM :: Monad m => Array a -> (Int -> a -> m b) -> m (Array b)
--- {-# INLINE iforM #-}
--- iforM v f = generateM (length v) (\i -> let !x = unsafeIndex v i in f i x)
--- {-# SPECIALIZE iforM :: Array a -> (Int -> a -> Prelude.IO b) -> Prelude.IO (Array b) #-}
+forM_ v f = mapM_ f v
+{-# SPECIALIZE forM_ :: Array a -> (a -> IO b) -> IO () #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of the array and their indices
 -- and ignore the results. Equivalent to @'flip' 'imapM_'@.
 iforM_ :: Monad m => Array a -> (Int -> a -> m b) -> m ()
 {-# INLINE iforM_ #-}
-iforM_ v f = ifoldr (\i x m -> f i x Prelude.>> m) (Prelude.return ()) v
-{-# SPECIALIZE iforM_ :: Array a -> (Int -> a -> Prelude.IO b) -> Prelude.IO () #-}
+iforM_ v f = imapM_ f v
+{-# SPECIALIZE iforM_ :: Array a -> (Int -> a -> IO b) -> IO () #-}
 
 -- -- Zipping
 -- -- -------
@@ -1286,13 +1270,13 @@ infix 4 `elem`
 -- | /O(n)/ Check if the array contains an element.
 elem :: Eq a => a -> Array a -> Bool
 {-# INLINE elem #-}
-elem z = foldr (\x xs -> x == z Prelude.|| xs) Prelude.False
+elem z = foldr (\ x xs -> x == z || xs) False
 
 infix 4 `notElem`
 -- | /O(n)/ Check if the array does not contain an element (inverse of 'elem').
 notElem :: Eq a => a -> Array a -> Bool
 {-# INLINE notElem #-}
-notElem z v = Prelude.not (elem z v)
+notElem z v = not (elem z v)
 
 -- | /O(n)/ Yield 'Just' the first element matching the predicate or 'Nothing'
 -- if no such element exists.
@@ -1452,7 +1436,7 @@ ifoldr' k z v = go z (length v - 1) where
 -- of the 'Foldable' type class.
 foldMap :: (Monoid m) => (a -> m) -> Array a -> m
 {-# INLINE foldMap #-}
-foldMap f = foldr (\x m -> f x Prelude.<> m) Prelude.mempty
+foldMap f = foldr (\x m -> f x <> m) mempty
 
 -- | /O(n)/ Like 'foldMap', but strict in the accumulator. It uses the same
 -- implementation as the corresponding method of the 'Foldable' type class.
@@ -1460,7 +1444,7 @@ foldMap f = foldr (\x m -> f x Prelude.<> m) Prelude.mempty
 -- contGHC.
 foldMap' :: (Monoid m) => (a -> m) -> Array a -> m
 {-# INLINE foldMap' #-}
-foldMap' f = foldr' (\x m -> f x Prelude.<> m) Prelude.mempty
+foldMap' f = foldr' (\x m -> f x <> m) mempty
 
 
 -- -- Specialised folds
@@ -1479,7 +1463,7 @@ foldMap' f = foldr' (\x m -> f x Prelude.<> m) Prelude.mempty
 -- True
 all :: (a -> Bool) -> Array a -> Bool
 {-# INLINE all #-}
-all f v = foldr (\x xs -> f x Prelude.&& xs) Prelude.True v
+all f v = foldr (\x xs -> f x && xs) True v
 
 -- | /O(n)/ Check if any element satisfies the predicate.
 --
@@ -1494,9 +1478,9 @@ all f v = foldr (\x xs -> f x Prelude.&& xs) Prelude.True v
 -- False
 any :: (a -> Bool) -> Array a -> Bool
 {-# INLINE any #-}
-any f = foldr (\x xs -> f x Prelude.|| xs) Prelude.False
+any f = foldr (\x xs -> f x || xs) False
 
--- | /O(n)/ Check if all elements are 'Prelude.True'.
+-- | /O(n)/ Check if all elements are 'True'.
 --
 -- ==== __Examples__
 --
@@ -1507,9 +1491,9 @@ any f = foldr (\x xs -> f x Prelude.|| xs) Prelude.False
 -- True
 and :: Array Bool -> Bool
 {-# INLINE and #-}
-and = foldr (Prelude.&&) Prelude.True
+and = foldr (&&) True
 
--- | /O(n)/ Check if any element is 'Prelude.True'.
+-- | /O(n)/ Check if any element is 'True'.
 --
 -- ==== __Examples__
 --
@@ -1520,7 +1504,7 @@ and = foldr (Prelude.&&) Prelude.True
 -- False
 or :: Array Bool -> Bool
 {-# INLINE or #-}
-or = foldr (Prelude.||) Prelude.False
+or = foldr (||) False
 
 -- | /O(n)/ Compute the sum of the elements.
 -- Warning: storing numbers (e.g. Int or Double) in a Array
@@ -1601,7 +1585,7 @@ maximumBy f = foldl1' (\x y -> case f x y of GT -> x; _ -> y)
 -- (1,'a')
 maximumOn :: Ord b => (a -> b) -> Array a -> a
 {-# INLINE maximumOn #-}
-maximumOn f v = maybe (Prelude.error "maximumOn: empty array") Prelude.fst (foldl' (\s x ->
+maximumOn f v = maybe (error "maximumOn: empty array") fst (foldl' (\s x ->
   case s of
     Just (!y, !fy) ->
       let !fx = f x in if fx > fy then Just (x, fx) else Just (y, fy)
@@ -1655,7 +1639,7 @@ minimumBy f = foldl1' (\x y -> case f x y of LT -> x; _ -> y)
 -- (1,'a')
 minimumOn :: Ord b => (a -> b) -> Array a -> a
 {-# INLINE minimumOn #-}
-minimumOn f v = maybe (Prelude.error "minimumOn: empty array") Prelude.fst (foldl' (\s x ->
+minimumOn f v = maybe (error "minimumOn: empty array") fst (foldl' (\s x ->
   case s of
     Just (!y, !fy) ->
       let !fx = f x in if fx < fy then Just (x, fx) else Just (y, fy)
@@ -1713,8 +1697,8 @@ foldM :: Monad m => (a -> b -> m a) -> a -> Array b -> m a
 {-# INLINE foldM #-}
 -- TODO: this does not generate optimal Core/STG. i
 -- I guess we'll need to implement these instead of the non-monadic folds.
-foldM k z = foldl' (\m y -> do x <- m; k x y) (Prelude.return z)
-{-# SPECIALIZE foldM :: (a -> b -> Prelude.IO a) -> a -> Array b -> Prelude.IO a #-}
+foldM k z = foldl' (\m y -> do x <- m; k x y) (return z)
+{-# SPECIALIZE foldM :: (a -> b -> IO a) -> a -> Array b -> IO a #-}
 
 -- -- | /O(n)/ Monadic fold using a function applied to each element and its index.
 -- ifoldM :: Monad m => (a -> Int -> b -> m a) -> a -> Array b -> m a
@@ -1782,13 +1766,13 @@ foldM k z = foldl' (\m y -> do x <- m; k x y) (Prelude.return z)
 -- sequence :: Monad m => Array (m a) -> m (Array a)
 -- {-# INLINE sequence #-}
 -- sequence v = generateM (length v) (\i -> unsafeIndex v i)
--- {-# SPECIALIZE sequence :: Array (Prelude.IO a) -> Prelude.IO (Array a) #-}
+-- {-# SPECIALIZE sequence :: Array (IO a) -> IO (Array a) #-}
 
 -- -- | Evaluate each action and discard the results.
 -- sequence_ :: Monad m => Array (m a) -> m ()
 -- {-# INLINE sequence_ #-}
--- sequence_ = foldr (\m xs -> m Prelude.>> xs) (Prelude.return ())
--- {-# SPECIALIZE sequence_ :: Array (Prelude.IO a) -> Prelude.IO () #-}
+-- sequence_ = foldr (\m xs -> m >> xs) (return ())
+-- {-# SPECIALIZE sequence_ :: Array (IO a) -> IO () #-}
 
 -- Scans
 -- -----
@@ -1952,7 +1936,7 @@ scanl1 k v = iunfoldrExactN (length v) (\i s ->
 -- predicate.
 eqBy :: (a -> b -> Bool) -> Array a -> Array b -> Bool
 {-# INLINE eqBy #-}
-eqBy eq v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in eq x y Prelude.&& xs) Prelude.True v
+eqBy eq v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in eq x y && xs) True v
 
 -- | /O(n)/ Compare two arrays using the supplied comparison function for
 -- array elements. Comparison works the same as for lists (lexicographically).
@@ -1960,7 +1944,7 @@ eqBy eq v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in eq x y Prelude.&& x
 -- > cmpBy compare == compare
 cmpBy :: (a -> b -> Ordering) -> Array a -> Array b -> Ordering
 {-# INLINE cmpBy #-}
-cmpBy cmp v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in cmp x y Prelude.<> xs) Prelude.EQ v
+cmpBy cmp v w = ifoldr (\i x xs -> let !y = unsafeIndex w i in cmp x y <> xs) EQ v
 
 -- -- Conversions - Lists
 -- -- ------------------------
