@@ -116,12 +116,12 @@ write m i x = do
 -- | Yield the element at the given position. No bounds checks are performed.
 unsafeRead :: Unbox a => STUArray s a -> Int -> ST s a
 {-# INLINE unsafeRead #-}
-unsafeRead (UnsafeSTUArray m) i = Class.unsafeRead m i
+unsafeRead @a (UnsafeSTUArray m) i = Class.unsafeRead m (i * Class.sizeOf a)
 
 -- | Replace the element at the given position. No bounds checks are performed.
 unsafeWrite :: Unbox a => STUArray s a -> Int -> a -> ST s ()
 {-# INLINE unsafeWrite #-}
-unsafeWrite (UnsafeSTUArray m) i !x = Class.unsafeWrite m i x
+unsafeWrite @a (UnsafeSTUArray m) i !x = Class.unsafeWrite m (i * Class.sizeOf a) x
 
 -- Shrinking
 -- ---------

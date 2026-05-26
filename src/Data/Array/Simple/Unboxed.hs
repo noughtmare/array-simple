@@ -289,7 +289,7 @@ last v = v ! (length v - 1)
 -- | /O(1)/ Unsafe indexing without bounds checking.
 unsafeIndex :: Unbox a => UArray a -> Int -> a
 {-# INLINE unsafeIndex #-}
-unsafeIndex (UnsafeUArray ba) i = Class.unsafeIndex ba i
+unsafeIndex @a (UnsafeUArray ba) i = Class.unsafeIndex ba (i * Class.sizeOf a)
 
 -- | /O(1)/ First element, without checking if the UArray is empty.
 unsafeHead :: Unbox a => UArray a -> a
@@ -1927,8 +1927,9 @@ toList :: Unbox a => UArray a -> [a]
 {-# INLINE toList #-}
 toList v = GHC.build (\c n ->
   let 
+    !len = length v
     go i
-      | i < length v = let !x = unsafeIndex v i in x `c` go (i + 1)
+      | i < len = let !x = unsafeIndex v i in x `c` go (i + 1)
       | otherwise = n
   in go 0)
 
