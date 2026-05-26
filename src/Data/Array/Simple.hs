@@ -504,8 +504,6 @@ iunfoldrExactN n f x0 = iunfoldrN n (\i x -> Just (f i x)) x0
 -- {-# INLINE unfoldrExactNST #-}
 -- unfoldrExactNST n f x0 = unfoldrNST n (\x -> do y <- f x; return (Just y)) x0
 
--- TODO: SPECIALIZE prevents inlining, reconsider all uses of it.
-
 -- -- This rule makes sure that fmap Just above gets optimized properly after unfoldrNM 
 -- -- is inlined:
 -- {-# RULES
@@ -896,28 +894,24 @@ imap f v = generate (length v) (\i -> let !x = unsafeIndex v i in f i x)
 mapM_ :: Monad m => (a -> m b) -> Array a -> m ()
 {-# INLINE mapM_ #-}
 mapM_ f = imapM_ (\_ -> f)
-{-# SPECIALIZE mapM_ :: (a -> IO b) -> Array a -> IO () #-}
 
 -- | /O(n)/ Apply the monadic action to every element of a array and its
 -- index, ignoring the results.
 imapM_ :: Monad m => (Int -> a -> m b) -> Array a -> m ()
 {-# INLINE imapM_ #-}
 imapM_ f = ifoldr (\ !i !x xs -> f i x >> xs) (return ())
-{-# SPECIALIZE imapM_ :: (Int -> a -> IO b) -> Array a -> IO () #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of a array and ignore the
 -- results. Equivalent to @flip 'mapM_'@.
 forM_ :: Monad m => Array a -> (a -> m b) -> m ()
 {-# INLINE forM_ #-}
 forM_ v f = mapM_ f v
-{-# SPECIALIZE forM_ :: Array a -> (a -> IO b) -> IO () #-}
 
 -- | /O(n)/ Apply the monadic action to all elements of the array and their indices
 -- and ignore the results. Equivalent to @'flip' 'imapM_'@.
 iforM_ :: Monad m => Array a -> (Int -> a -> m b) -> m ()
 {-# INLINE iforM_ #-}
 iforM_ v f = imapM_ f v
-{-# SPECIALIZE iforM_ :: Array a -> (Int -> a -> IO b) -> IO () #-}
 
 -- -- Zipping
 -- -- -------
@@ -1698,7 +1692,6 @@ foldM :: Monad m => (a -> b -> m a) -> a -> Array b -> m a
 -- TODO: this does not generate optimal Core/STG. i
 -- I guess we'll need to implement these instead of the non-monadic folds.
 foldM k z = foldl' (\m y -> do x <- m; k x y) (return z)
-{-# SPECIALIZE foldM :: (a -> b -> IO a) -> a -> Array b -> IO a #-}
 
 -- -- | /O(n)/ Monadic fold using a function applied to each element and its index.
 -- ifoldM :: Monad m => (a -> Int -> b -> m a) -> a -> Array b -> m a
