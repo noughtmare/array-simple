@@ -10,7 +10,7 @@ This package tries to provide a similar interface as the Data.Vector module in t
   | `array`          |           8s |
   | `contiguous`     |          15s |
   | `vector`         |          70s | 
-  | `array-simple`   |           4s |
+  | `array-simple`   |           5s |
   | `primitive`      |           7s |
 
 * Our array type is strict in its elements.
