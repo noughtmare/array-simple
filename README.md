@@ -3,7 +3,7 @@ The `array-simple` package
 
 This package tries to provide a similar interface as the `Data.Vector` and `Data.Vector.Unboxed` modules in the `vector` library, but with these advantages:
 
-* **Fast to compile** and has **few dependencies**. The compilation times (including dependencies) on my machine are as follows:
+* **Fast to compile** and has **no dependencies**. The compilation times (including dependencies) on my machine are as follows:
 
   |                  | compile time |
   |------------------|-------------:|
@@ -13,7 +13,7 @@ This package tries to provide a similar interface as the `Data.Vector` and `Data
   | `array-simple`   |           5s |
   | `primitive`      |           7s |
 
-  \* The compile time of the `contiguous` package does drop significantly if you have already compiled all dependencies.
+  \* The compile time of the `contiguous` package drops significantly if you exclude dependencies.
 
 * Our array type is **strict in its elements**.
 * **Simple implementation**. It should be easy to check the source in the Haddocks and the Core dumps GHC generates should be much more readable.
