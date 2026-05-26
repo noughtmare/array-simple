@@ -20,9 +20,9 @@ synopsis:       Simple Efficient Arrays
 description:
         An efficient and simple implementation of @Int@-indexed arrays.
 
-        In contrast to array, the arrays in this package are strict in their
-        elements. There is also no fusion framework, so each (safe) operation 
-        on immutable arrays yields a fresh copy.
+        In contrast to the vector package, the arrays in this package are 
+        strict in their elements. There is also no fusion framework, so each
+        (safe) operation on immutable arrays yields a fresh copy.
 
 
 extra-doc-files: changelog.md
@@ -33,9 +33,13 @@ source-repository head
   location: https://github.com/noughtmare/array-simple.git
 
 library
-  exposed-modules:  Data.Array.Simple.Grow
+  exposed-modules:  Data.Array.Simple
+                    Data.Array.Simple.Grow
                     Data.Array.Simple.Mutable
-                    Data.Array.Simple
+                    Data.Array.Simple.Unboxed
+                    Data.Array.Simple.Unboxed.Class
+                    Data.Array.Simple.Unboxed.Grow
+                    Data.Array.Simple.Unboxed.Mutable
   build-depends:    base >= 4.18 && < 4.23
   hs-source-dirs:   src
   default-language: GHC2021
