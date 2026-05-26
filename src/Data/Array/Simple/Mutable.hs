@@ -36,8 +36,8 @@ module Data.Array.Simple.Mutable (
   -- -- ** Filling and copying
   -- set, copy, move, unsafeCopy, unsafeMove,
 
-  -- ** Slice (unstable)
-  STArraySlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
+  -- -- ** Slice (unstable)
+  -- STArraySlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
 import qualified GHC.Exts as GHC
@@ -142,6 +142,8 @@ shrink m n
   | 0 <= n && n < length m = unsafeShrink m n
   | otherwise = error "shrink: new length out of bounds"
 
+-- TODO: this conflicts with the pure length function.
+
 -- | Shrink the array without checking if the new size is in bounds. 
 unsafeShrink :: STArray s a -> Int -> ST s ()
 unsafeShrink (UnsafeSTArray m) (GHC.I# n) = GHC.ST (\s ->
@@ -203,28 +205,28 @@ unsafeShrink (UnsafeSTArray m) (GHC.I# n) = GHC.ST (\s ->
 -- Slicing
 -- -------
 
--- | A slice (subarray) of a mutable array. This takes up 2 extra words, so /4 + n/ words total.
-data STArraySlice s a = UnsafeSTArraySlice {-# UNPACK #-} !(STArray s a) !Int !Int
+-- -- | A slice (subarray) of a mutable array. This takes up 2 extra words, so /4 + n/ words total.
+-- data STArraySlice s a = UnsafeSTArraySlice {-# UNPACK #-} !(STArray s a) !Int !Int
 
--- | Convert a array to a slice which covers the whole array.
-whole :: STArray s a -> STArraySlice s a
-whole m = UnsafeSTArraySlice m 0 (length m)
+-- -- | Convert a array to a slice which covers the whole array.
+-- whole :: STArray s a -> STArraySlice s a
+-- whole m = UnsafeSTArraySlice m 0 (length m)
 
--- | Take a prefix of a slice
-unsafeTakeL :: Int -> STArraySlice s a -> STArraySlice s a
-unsafeTakeL n (UnsafeSTArraySlice m off _) = UnsafeSTArraySlice m off n
+-- -- | Take a prefix of a slice
+-- unsafeTakeL :: Int -> STArraySlice s a -> STArraySlice s a
+-- unsafeTakeL n (UnsafeSTArraySlice m off _) = UnsafeSTArraySlice m off n
 
--- | Take a suffix of a slice
-unsafeTakeR :: Int -> STArraySlice s a -> STArraySlice s a
-unsafeTakeR n (UnsafeSTArraySlice m off len) = UnsafeSTArraySlice m (off + len - n) n
+-- -- | Take a suffix of a slice
+-- unsafeTakeR :: Int -> STArraySlice s a -> STArraySlice s a
+-- unsafeTakeR n (UnsafeSTArraySlice m off len) = UnsafeSTArraySlice m (off + len - n) n
 
--- | Remove a prefix of a slice
-unsafeDropL :: Int -> STArraySlice s a -> STArraySlice s a
-unsafeDropL n (UnsafeSTArraySlice m off len) = UnsafeSTArraySlice m (off + n) (len - n)
+-- -- | Remove a prefix of a slice
+-- unsafeDropL :: Int -> STArraySlice s a -> STArraySlice s a
+-- unsafeDropL n (UnsafeSTArraySlice m off len) = UnsafeSTArraySlice m (off + n) (len - n)
 
--- | Remove a suffix of a slice
-unsafeDropR :: Int -> STArraySlice s a -> STArraySlice s a
-unsafeDropR n (UnsafeSTArraySlice m off len) = UnsafeSTArraySlice m off (len - n)
+-- -- | Remove a suffix of a slice
+-- unsafeDropR :: Int -> STArraySlice s a -> STArraySlice s a
+-- unsafeDropR n (UnsafeSTArraySlice m off len) = UnsafeSTArraySlice m off (len - n)
 
 -- $setup
 -- >>> import Prelude (Integer,Num(..),($))

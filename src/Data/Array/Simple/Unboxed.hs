@@ -201,8 +201,6 @@ import Prelude
   , fromIntegral, Functor, Semigroup (..), fst, quot)
 import qualified Prelude
 import Data.Maybe (maybe)
-import qualified Data.Foldable as Foldable
-import qualified Unsafe.Coerce
 import Data.STRef ( readSTRef )
 
 import Data.Array.Byte

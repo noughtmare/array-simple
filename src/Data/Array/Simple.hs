@@ -32,11 +32,11 @@ module Data.Array.Simple (
   -- indexM, headM, lastM,
   -- unsafeIndexM, unsafeHeadM, unsafeLastM,
 
-  -- ** Extracting subarrays (slicing)
-  slice, 
-  -- init, tail, take, drop, splitAt, uncons, unsnoc,
-  unsafeSlice, 
-  -- unsafeInit, unsafeTail, unsafeTake, unsafeDrop,
+  -- -- ** Extracting subarrays (slicing)
+  -- slice, 
+  -- -- init, tail, take, drop, splitAt, uncons, unsnoc,
+  -- unsafeSlice, 
+  -- -- unsafeInit, unsafeTail, unsafeTake, unsafeDrop,
 
   -- * Construction
 
@@ -173,14 +173,17 @@ module Data.Array.Simple (
   -- G.convert,
 
   -- ** Mutable arrays
-  freeze, unsafeFreeze, thaw, copy, unsafeCopy,
+  -- freeze, 
+  unsafeFreeze,
+  -- thaw, copy, unsafeCopy,
   -- unsafeThaw, 
 
   -- ** Grow arrays
-  petrify, unsafePetrify,
+  -- petrify, 
+  unsafePetrify,
 
   -- * Slicing (unstable)
-  ArraySlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
+  -- ArraySlice (..), whole, unsafeTakeL, unsafeTakeR, unsafeDropL, unsafeDropR,
 ) where
 
 import qualified Data.Array.Simple.Mutable as M
@@ -333,27 +336,27 @@ unsafeLast v = unsafeIndex v (length v - 1)
 -- Extracting subarrays (slicing)
 -- -------------------------------
 
--- | /O(n)/ Yield a slice of the array by copying it. The array must
--- contain at least @i+n@ elements.
-slice :: Int   -- ^ @i@ starting index
-      -> Int   -- ^ @n@ length
-      -> Array a
-      -> Array a
-{-# INLINE slice #-}
-slice i n v
-  | 0 <= i && 0 < n && i + n < length v = unsafeSlice i n v
-  | otherwise = error ("Slice arguments out of bounds: " <> show (i, n))
+-- -- | /O(n)/ Yield a slice of the array by copying it. The array must
+-- -- contain at least @i+n@ elements.
+-- slice :: Int   -- ^ @i@ starting index
+--       -> Int   -- ^ @n@ length
+--       -> Array a
+--       -> Array a
+-- {-# INLINE slice #-}
+-- slice i n v
+--   | 0 <= i && 0 < n && i + n < length v = unsafeSlice i n v
+--   | otherwise = error ("Slice arguments out of bounds: " <> show (i, n))
 
--- | /O(1)/ Yield a slice of the array without copying. The array must
--- contain at least @i+n@ elements, but this is not checked.
-unsafeSlice :: Int   -- ^ @i@ starting index
-            -> Int   -- ^ @n@ length
-            -> Array a
-            -> Array a
-unsafeSlice i n v = runST (do
-  m <- M.unsafeNew n
-  unsafeCopy (unsafeDropL i (whole v)) (M.whole m)
-  unsafeFreeze m)
+-- -- | /O(1)/ Yield a slice of the array without copying. The array must
+-- -- contain at least @i+n@ elements, but this is not checked.
+-- unsafeSlice :: Int   -- ^ @i@ starting index
+--             -> Int   -- ^ @n@ length
+--             -> Array a
+--             -> Array a
+-- unsafeSlice i n v = runST (do
+--   m <- M.unsafeNew n
+--   unsafeCopy (unsafeDropL i (whole v)) (M.whole m)
+--   unsafeFreeze m)
 
 -- Initialisation
 -- --------------
@@ -1999,62 +2002,62 @@ unsafeFreeze (M.UnsafeSTArray marr) = GHC.ST (\s ->
   case GHC.unsafeFreezeSmallArray# marr s of
     (# s', arr #) -> (# s', UnsafeArray arr #))
 
--- | A slice (subarray) of an immutable array. This takes up 2 extra words, so /4 + n/ words total.
-data ArraySlice a = UnsafeArraySlice {-# UNPACK #-} !Int !Int !(Array a) 
+-- -- | A slice (subarray) of an immutable array. This takes up 2 extra words, so /4 + n/ words total.
+-- data ArraySlice a = UnsafeArraySlice {-# UNPACK #-} !Int !Int !(Array a) 
 
--- | Convert a array to a slice which covers the whole array.
-whole :: Array a -> ArraySlice a
-whole v = UnsafeArraySlice 0 (length v) v
+-- -- | Convert a array to a slice which covers the whole array.
+-- whole :: Array a -> ArraySlice a
+-- whole v = UnsafeArraySlice 0 (length v) v
 
--- | Take a prefix of a slice
-unsafeTakeL :: Int -> ArraySlice a -> ArraySlice a
-unsafeTakeL n (UnsafeArraySlice off _ m) = UnsafeArraySlice off n m
+-- -- | Take a prefix of a slice
+-- unsafeTakeL :: Int -> ArraySlice a -> ArraySlice a
+-- unsafeTakeL n (UnsafeArraySlice off _ m) = UnsafeArraySlice off n m
 
--- | Take a suffix of a slice
-unsafeTakeR :: Int -> ArraySlice a -> ArraySlice a
-unsafeTakeR n (UnsafeArraySlice off len m) = UnsafeArraySlice (off + len - n) n m
+-- -- | Take a suffix of a slice
+-- unsafeTakeR :: Int -> ArraySlice a -> ArraySlice a
+-- unsafeTakeR n (UnsafeArraySlice off len m) = UnsafeArraySlice (off + len - n) n m
 
--- | Remove a prefix of a slice
-unsafeDropL :: Int -> ArraySlice a -> ArraySlice a
-unsafeDropL n (UnsafeArraySlice off len m) = UnsafeArraySlice (off + n) (len - n) m
+-- -- | Remove a prefix of a slice
+-- unsafeDropL :: Int -> ArraySlice a -> ArraySlice a
+-- unsafeDropL n (UnsafeArraySlice off len m) = UnsafeArraySlice (off + n) (len - n) m
 
--- | Remove a suffix of a slice
-unsafeDropR :: Int -> ArraySlice a -> ArraySlice a
-unsafeDropR n (UnsafeArraySlice off len m) = UnsafeArraySlice off (len - n) m
+-- -- | Remove a suffix of a slice
+-- unsafeDropR :: Int -> ArraySlice a -> ArraySlice a
+-- unsafeDropR n (UnsafeArraySlice off len m) = UnsafeArraySlice off (len - n) m
 
--- | /O(n)/ Yield an immutable copy of the mutable array.
-freeze :: M.STArraySlice s a -> ST s (Array a)
-{-# INLINE freeze #-}
-freeze (M.UnsafeSTArraySlice (M.UnsafeSTArray marr) (GHC.I# off) (GHC.I# len)) = GHC.ST (\s ->
-  case GHC.freezeSmallArray# marr off len s of
-    (# s', arr #) -> (# s', UnsafeArray arr #))
+-- -- | /O(n)/ Yield an immutable copy of the mutable array.
+-- freeze :: M.STArraySlice s a -> ST s (Array a)
+-- {-# INLINE freeze #-}
+-- freeze (M.UnsafeSTArraySlice (M.UnsafeSTArray marr) (GHC.I# off) (GHC.I# len)) = GHC.ST (\s ->
+--   case GHC.freezeSmallArray# marr off len s of
+--     (# s', arr #) -> (# s', UnsafeArray arr #))
 
--- | /O(n)/ Yield a mutable copy of an immutable array.
-thaw :: ArraySlice a -> ST s (M.STArray s a)
-{-# INLINE thaw #-}
-thaw (UnsafeArraySlice (GHC.I# i) (GHC.I# n) (UnsafeArray arr)) = GHC.ST (\s -> 
-  case GHC.thawSmallArray# arr i n s of
-    (# s', marr #) -> (# s', M.UnsafeSTArray marr #))
+-- -- | /O(n)/ Yield a mutable copy of an immutable array.
+-- thaw :: ArraySlice a -> ST s (M.STArray s a)
+-- {-# INLINE thaw #-}
+-- thaw (UnsafeArraySlice (GHC.I# i) (GHC.I# n) (UnsafeArray arr)) = GHC.ST (\s -> 
+--   case GHC.thawSmallArray# arr i n s of
+--     (# s', marr #) -> (# s', M.UnsafeSTArray marr #))
 
--- | /O(n)/ Copy an immutable array into a mutable one.
-unsafeCopy :: ArraySlice a -> M.STArraySlice s a -> ST s ()
-{-# INLINE unsafeCopy #-}
-unsafeCopy (UnsafeArraySlice (GHC.I# offv) _ (UnsafeArray arr)) (M.UnsafeSTArraySlice (M.UnsafeSTArray marr) (GHC.I# offm) (GHC.I# len)) = GHC.ST (\s -> 
-  (# GHC.copySmallArray# arr offv marr offm len s , () #))
+-- -- | /O(n)/ Copy an immutable array into a mutable one.
+-- unsafeCopy :: ArraySlice a -> M.STArraySlice s a -> ST s ()
+-- {-# INLINE unsafeCopy #-}
+-- unsafeCopy (UnsafeArraySlice (GHC.I# offv) _ (UnsafeArray arr)) (M.UnsafeSTArraySlice (M.UnsafeSTArray marr) (GHC.I# offm) (GHC.I# len)) = GHC.ST (\s -> 
+--   (# GHC.copySmallArray# arr offv marr offm len s , () #))
 
--- | /O(n)/ Copy an immutable array into a mutable one. The two arrays must
--- have the same length.
-copy :: ArraySlice a -> M.STArraySlice s a -> ST s ()
-{-# INLINE copy #-}
-copy v@(UnsafeArraySlice _ vn _) m@(M.UnsafeSTArraySlice _ mn _)
-  | mn == vn = unsafeCopy v m
-  | otherwise = error "copy: array slices have different lengths"
+-- -- | /O(n)/ Copy an immutable array into a mutable one. The two arrays must
+-- -- have the same length.
+-- copy :: ArraySlice a -> M.STArraySlice s a -> ST s ()
+-- {-# INLINE copy #-}
+-- copy v@(UnsafeArraySlice _ vn _) m@(M.UnsafeSTArraySlice _ mn _)
+--   | mn == vn = unsafeCopy v m
+--   | otherwise = error "copy: array slices have different lengths"
 
--- | /O(n)/ Yield an immutable copy of a grow array.
-petrify :: G.GrowArray s a -> ST s (Array a)
-petrify (G.UnsafeGrowArray ref) = do
-  G.UnsafeGrowArray_ n m <- readSTRef ref
-  freeze (M.unsafeTakeL n (M.whole m))
+-- -- | /O(n)/ Yield an immutable copy of a grow array.
+-- petrify :: G.GrowArray s a -> ST s (Array a)
+-- petrify (G.UnsafeGrowArray ref) = do
+--   G.UnsafeGrowArray_ n m <- readSTRef ref
+--   freeze (M.unsafeTakeL n (M.whole m))
 
 -- | /O(1)/ Convert a grow array to an immutable array. The grow array must
 -- not be used after this.

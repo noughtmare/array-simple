@@ -28,7 +28,4 @@ This does come at some costs:
 > [!NOTE]
 > You should enable `optimization: 2` in your cabal.project file to get the best performance.
 
-This package is not complete yet. We have the following plans:
-
-* Move slices to their own modules and provide a more complete interface on them.
-* Design some form of unboxed arrays. Hopefullly supporting compound and nested structures.
+This package is almost ready for a first release, only final checks remain.
