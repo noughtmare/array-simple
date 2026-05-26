@@ -8,10 +8,12 @@ This package tries to provide a similar interface as the Data.Vector module in t
   |                  | compile time |
   |------------------|-------------:|
   | `array`          |           8s |
-  | `contiguous`     |          15s |
+  | `contiguous`     |        15s\* |
   | `vector`         |          70s | 
   | `array-simple`   |           5s |
   | `primitive`      |           7s |
+
+  \* The compile time of the `contiguous` package does drop significantly if you have already compiled all dependencies.
 
 * Our array type is strict in its elements.
 * The implementation is straightforward. It should be easy to check the source in the Haddocks and the Core dumps GHC generates should be much more readable.
