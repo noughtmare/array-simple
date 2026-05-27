@@ -17,7 +17,13 @@ This package tries to provide a similar interface as the `Data.Vector` and `Data
 
 * Our array type is **strict in its elements**.
 * **Simple implementation**. It should be easy to check the source in the Haddocks and the Core dumps GHC generates should be much more readable.
-* Our array type has **minimal space overhead** (4 words). It is now suitable for small arrays of 0-100 elements.
+* Our array type has **minimal space overhead** (4 words). It is now suitable for small arrays of 0-100 elements. The memory representation looks like this:
+  ```
+   ╭─────────────┬───╮  ╭────────┬──────┬────────────╮
+   │ Constructor │ * ┼─➤│ Header │ Size │ Payload... │
+   ╰─────────────┴───╯  ╰────────┴──────┴────────────╯
+         Array                  SmallArray#
+  ```
 * We only provide functions which are as **efficient** as you would expect. For example the vector package provides many monadic vector construction functions, but these use lists internally (unless the monad happens to be IO or ST). We believe users should explicitly use lists if they want monadic construction functions.
 
 > [!NOTE]
