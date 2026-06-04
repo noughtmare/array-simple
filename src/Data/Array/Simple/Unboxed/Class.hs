@@ -32,11 +32,11 @@ instance Unbox Int8 where
     {-# INLINE sizeOf #-}
     alignment Int8 = 0
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = I8# (GHC.indexInt8Array# arr (unI# (i `unsafeShiftR` alignment Int8)))
+    unsafeIndex (ByteArray arr) = \i -> I8# (GHC.indexInt8Array# arr (unI# (i `unsafeShiftR` alignment Int8)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readInt8Array# marr (unI# (i `unsafeShiftR` alignment Int8)) s of (# s', x #) -> (# s', I8# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readInt8Array# marr (unI# (i `unsafeShiftR` alignment Int8)) s of (# s', x #) -> (# s', I8# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (I8# x) = GHC.ST (\s -> (# GHC.writeInt8Array# marr (unI# (i `unsafeShiftR` alignment Int8)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (I8# x) -> GHC.ST (\s -> (# GHC.writeInt8Array# marr (unI# (i `unsafeShiftR` alignment Int8)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Int16 where
@@ -44,11 +44,11 @@ instance Unbox Int16 where
     {-# INLINE sizeOf #-}
     alignment Int16 = 1
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = I16# (GHC.indexInt16Array# arr (unI# (i `unsafeShiftR` alignment Int16)))
+    unsafeIndex (ByteArray arr) = \i -> I16# (GHC.indexInt16Array# arr (unI# (i `unsafeShiftR` alignment Int16)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readInt16Array# marr (unI# (i `unsafeShiftR` alignment Int16)) s of (# s', x #) -> (# s', I16# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readInt16Array# marr (unI# (i `unsafeShiftR` alignment Int16)) s of (# s', x #) -> (# s', I16# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (I16# x) = GHC.ST (\s -> (# GHC.writeInt16Array# marr (unI# (i `unsafeShiftR` alignment Int16)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (I16# x) -> GHC.ST (\s -> (# GHC.writeInt16Array# marr (unI# (i `unsafeShiftR` alignment Int16)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Int32 where
@@ -56,11 +56,11 @@ instance Unbox Int32 where
     {-# INLINE sizeOf #-}
     alignment Int32 = 2
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = I32# (GHC.indexInt32Array# arr (unI# (i `unsafeShiftR` alignment Int32)))
+    unsafeIndex (ByteArray arr) = \i -> I32# (GHC.indexInt32Array# arr (unI# (i `unsafeShiftR` alignment Int32)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readInt32Array# marr (unI# (i `unsafeShiftR` alignment Int32)) s of (# s', x #) -> (# s', I32# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readInt32Array# marr (unI# (i `unsafeShiftR` alignment Int32)) s of (# s', x #) -> (# s', I32# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (I32# x) = GHC.ST (\s -> (# GHC.writeInt32Array# marr (unI# (i `unsafeShiftR` alignment Int32)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (I32# x) -> GHC.ST (\s -> (# GHC.writeInt32Array# marr (unI# (i `unsafeShiftR` alignment Int32)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Int64 where
@@ -68,11 +68,11 @@ instance Unbox Int64 where
     {-# INLINE sizeOf #-}
     alignment Int64 = 3
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = I64# (GHC.indexInt64Array# arr (unI# (i `unsafeShiftR` alignment Int64)))
+    unsafeIndex (ByteArray arr) = \i -> I64# (GHC.indexInt64Array# arr (unI# (i `unsafeShiftR` alignment Int64)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readInt64Array# marr (unI# (i `unsafeShiftR` alignment Int64)) s of (# s', x #) -> (# s', I64# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readInt64Array# marr (unI# (i `unsafeShiftR` alignment Int64)) s of (# s', x #) -> (# s', I64# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (I64# x) = GHC.ST (\s -> (# GHC.writeInt64Array# marr (unI# (i `unsafeShiftR` alignment Int64)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (I64# x) -> GHC.ST (\s -> (# GHC.writeInt64Array# marr (unI# (i `unsafeShiftR` alignment Int64)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Int where
@@ -80,11 +80,11 @@ instance Unbox Int where
     {-# INLINE sizeOf #-}
     alignment Int = 3
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = I# (GHC.indexIntArray# arr (unI# (i `unsafeShiftR` alignment Int)))
+    unsafeIndex (ByteArray arr) = \i -> I# (GHC.indexIntArray# arr (unI# (i `unsafeShiftR` alignment Int)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readIntArray# marr (unI# (i `unsafeShiftR` alignment Int)) s of (# s', x #) -> (# s', I# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readIntArray# marr (unI# (i `unsafeShiftR` alignment Int)) s of (# s', x #) -> (# s', I# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (I# x) = GHC.ST (\s -> (# GHC.writeIntArray# marr (unI# (i `unsafeShiftR` alignment Int)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (I# x) -> GHC.ST (\s -> (# GHC.writeIntArray# marr (unI# (i `unsafeShiftR` alignment Int)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Double where
@@ -92,11 +92,11 @@ instance Unbox Double where
     {-# INLINE sizeOf #-}
     alignment Double = 3
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = D# (GHC.indexDoubleArray# arr (unI# (i `unsafeShiftR` alignment Double)))
+    unsafeIndex (ByteArray arr) = \i -> D# (GHC.indexDoubleArray# arr (unI# (i `unsafeShiftR` alignment Double)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readDoubleArray# marr (unI# (i `unsafeShiftR` alignment Double)) s of (# s', x #) -> (# s', D# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readDoubleArray# marr (unI# (i `unsafeShiftR` alignment Double)) s of (# s', x #) -> (# s', D# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (D# x) = GHC.ST (\s -> (# GHC.writeDoubleArray# marr (unI# (i `unsafeShiftR` alignment Double)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (D# x) -> GHC.ST (\s -> (# GHC.writeDoubleArray# marr (unI# (i `unsafeShiftR` alignment Double)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Float where
@@ -104,11 +104,11 @@ instance Unbox Float where
     {-# INLINE sizeOf #-}
     alignment Float = 2
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = F# (GHC.indexFloatArray# arr (unI# (i `unsafeShiftR` alignment Float)))
+    unsafeIndex (ByteArray arr) = \i -> F# (GHC.indexFloatArray# arr (unI# (i `unsafeShiftR` alignment Float)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readFloatArray# marr (unI# (i `unsafeShiftR` alignment Float)) s of (# s', x #) -> (# s', F# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readFloatArray# marr (unI# (i `unsafeShiftR` alignment Float)) s of (# s', x #) -> (# s', F# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (F# x) = GHC.ST (\s -> (# GHC.writeFloatArray# marr (unI# (i `unsafeShiftR` alignment Float)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (F# x) -> GHC.ST (\s -> (# GHC.writeFloatArray# marr (unI# (i `unsafeShiftR` alignment Float)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Word8 where
@@ -116,11 +116,11 @@ instance Unbox Word8 where
     {-# INLINE sizeOf #-}
     alignment Word8 = 0
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = W8# (GHC.indexWord8Array# arr (unI# (i `unsafeShiftR` alignment Word8)))
+    unsafeIndex (ByteArray arr) = \i -> W8# (GHC.indexWord8Array# arr (unI# (i `unsafeShiftR` alignment Word8)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readWord8Array# marr (unI# (i `unsafeShiftR` alignment Word8)) s of (# s', x #) -> (# s', W8# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readWord8Array# marr (unI# (i `unsafeShiftR` alignment Word8)) s of (# s', x #) -> (# s', W8# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (W8# x) = GHC.ST (\s -> (# GHC.writeWord8Array# marr (unI# (i `unsafeShiftR` alignment Word8)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (W8# x) -> GHC.ST (\s -> (# GHC.writeWord8Array# marr (unI# (i `unsafeShiftR` alignment Word8)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Word16 where
@@ -128,11 +128,11 @@ instance Unbox Word16 where
     {-# INLINE sizeOf #-}
     alignment Word16 = 1
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = W16# (GHC.indexWord16Array# arr (unI# (i `unsafeShiftR` alignment Word16)))
+    unsafeIndex (ByteArray arr) = \i -> W16# (GHC.indexWord16Array# arr (unI# (i `unsafeShiftR` alignment Word16)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readWord16Array# marr (unI# (i `unsafeShiftR` alignment Word16)) s of (# s', x #) -> (# s', W16# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readWord16Array# marr (unI# (i `unsafeShiftR` alignment Word16)) s of (# s', x #) -> (# s', W16# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (W16# x) = GHC.ST (\s -> (# GHC.writeWord16Array# marr (unI# (i `unsafeShiftR` alignment Word16)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (W16# x) -> GHC.ST (\s -> (# GHC.writeWord16Array# marr (unI# (i `unsafeShiftR` alignment Word16)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Word32 where
@@ -140,11 +140,11 @@ instance Unbox Word32 where
     {-# INLINE sizeOf #-}
     alignment Word32 = 2
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = W32# (GHC.indexWord32Array# arr (unI# (i `unsafeShiftR` alignment Word32)))
+    unsafeIndex (ByteArray arr) = \i -> W32# (GHC.indexWord32Array# arr (unI# (i `unsafeShiftR` alignment Word32)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readWord32Array# marr (unI# (i `unsafeShiftR` alignment Word32)) s of (# s', x #) -> (# s', W32# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readWord32Array# marr (unI# (i `unsafeShiftR` alignment Word32)) s of (# s', x #) -> (# s', W32# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (W32# x) = GHC.ST (\s -> (# GHC.writeWord32Array# marr (unI# (i `unsafeShiftR` alignment Word32)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (W32# x) -> GHC.ST (\s -> (# GHC.writeWord32Array# marr (unI# (i `unsafeShiftR` alignment Word32)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Word64 where
@@ -152,11 +152,11 @@ instance Unbox Word64 where
     {-# INLINE sizeOf #-}
     alignment Word64 = 3
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = W64# (GHC.indexWord64Array# arr (unI# (i `unsafeShiftR` alignment Word64)))
+    unsafeIndex (ByteArray arr) = \i -> W64# (GHC.indexWord64Array# arr (unI# (i `unsafeShiftR` alignment Word64)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readWord64Array# marr (unI# (i `unsafeShiftR` alignment Word64)) s of (# s', x #) -> (# s', W64# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readWord64Array# marr (unI# (i `unsafeShiftR` alignment Word64)) s of (# s', x #) -> (# s', W64# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (W64# x) = GHC.ST (\s -> (# GHC.writeWord64Array# marr (unI# (i `unsafeShiftR` alignment Word64)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (W64# x) -> GHC.ST (\s -> (# GHC.writeWord64Array# marr (unI# (i `unsafeShiftR` alignment Word64)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance Unbox Word where
@@ -164,11 +164,11 @@ instance Unbox Word where
     {-# INLINE sizeOf #-}
     alignment Word = 3
     {-# INLINE alignment #-}
-    unsafeIndex (ByteArray arr) i = W# (GHC.indexWordArray# arr (unI# (i `unsafeShiftR` alignment Word64)))
+    unsafeIndex (ByteArray arr) = \i -> W# (GHC.indexWordArray# arr (unI# (i `unsafeShiftR` alignment Word64)))
     {-# INLINE unsafeIndex #-}
-    unsafeRead (MutableByteArray marr) i = GHC.ST (\s -> case GHC.readWordArray# marr (unI# (i `unsafeShiftR` alignment Word64)) s of (# s', x #) -> (# s', W# x #))
+    unsafeRead (MutableByteArray marr) = \i -> GHC.ST (\s -> case GHC.readWordArray# marr (unI# (i `unsafeShiftR` alignment Word64)) s of (# s', x #) -> (# s', W# x #))
     {-# INLINE unsafeRead #-}
-    unsafeWrite (MutableByteArray marr) i (W# x) = GHC.ST (\s -> (# GHC.writeWordArray# marr (unI# (i `unsafeShiftR` alignment Word64)) x s, () #))
+    unsafeWrite (MutableByteArray marr) = \i (W# x) -> GHC.ST (\s -> (# GHC.writeWordArray# marr (unI# (i `unsafeShiftR` alignment Word64)) x s, () #))
     {-# INLINE unsafeWrite #-}
 
 instance (Unbox a, Unbox b) => Unbox (a, b) where
@@ -176,15 +176,15 @@ instance (Unbox a, Unbox b) => Unbox (a, b) where
     {-# INLINE sizeOf #-}
     alignment _ = alignment (type (Tuple [a, b]))
     {-# INLINE alignment #-}
-    unsafeIndex ba i = case unsafeIndex @(Tuple [a, b]) ba i of
+    unsafeIndex ba = \i -> case unsafeIndex @(Tuple [a, b]) ba i of
         TCons x (TCons y TNil) -> (x, y)
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         x <- unsafeRead @(Tuple [a, b]) mba i
         case x of
             TCons x1 (TCons x2 TNil) -> return (x1, x2)
     {-# INLINE unsafeRead #-}
-    unsafeWrite mba i (x, y) = unsafeWrite mba i (TCons x (TCons y TNil))
+    unsafeWrite mba = \i (x, y) -> unsafeWrite mba i (TCons x (TCons y TNil))
     {-# INLINE unsafeWrite #-}
 
 instance (Unbox a, Unbox b, Unbox c) => Unbox (a, b, c) where
@@ -192,15 +192,15 @@ instance (Unbox a, Unbox b, Unbox c) => Unbox (a, b, c) where
     {-# INLINE sizeOf #-}
     alignment _ = alignment (type (Tuple [a, b, c]))
     {-# INLINE alignment #-}
-    unsafeIndex ba i = case unsafeIndex @(Tuple [a, b, c]) ba i of
+    unsafeIndex ba = \i -> case unsafeIndex @(Tuple [a, b, c]) ba i of
         TCons x (TCons y (TCons z TNil)) -> (x, y, z)
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         tup <- unsafeRead @(Tuple [a, b, c]) mba i
         case tup of
             TCons x (TCons y (TCons z TNil)) -> return (x, y, z)
     {-# INLINE unsafeRead #-}
-    unsafeWrite mba i (x, y, z) = unsafeWrite mba i (TCons x (TCons y (TCons z TNil)))
+    unsafeWrite mba = \i (x, y, z) -> unsafeWrite mba i (TCons x (TCons y (TCons z TNil)))
     {-# INLINE unsafeWrite #-}
 
 instance (Unbox a, Unbox b) => Unbox (Either a b) where
@@ -208,11 +208,11 @@ instance (Unbox a, Unbox b) => Unbox (Either a b) where
     {-# INLINE sizeOf #-}
     alignment _ = alignment (type (Sum [a, b]))
     {-# INLINE alignment #-}
-    unsafeIndex ba i = case unsafeIndex @(Sum [a, b]) ba i of
+    unsafeIndex ba = \i -> case unsafeIndex @(Sum [a, b]) ba i of
         UnsafeSum 0 x -> Left (Unsafe.Coerce.unsafeCoerce @GHC.Any @a x)
         UnsafeSum _ x -> Right (Unsafe.Coerce.unsafeCoerce @GHC.Any @b x)
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         s <- unsafeRead @(Sum [a, b]) mba i
         case s of
             UnsafeSum 0 x -> return (Left (Unsafe.Coerce.unsafeCoerce @GHC.Any @a x))
@@ -239,11 +239,11 @@ instance Unbox Bool where
     {-# INLINE sizeOf #-}
     alignment _ = alignment Word8
     {-# INLINE alignment #-}
-    unsafeIndex ba i = case unsafeIndex @Word8 ba i of
+    unsafeIndex ba = \i -> case unsafeIndex @Word8 ba i of
         0 -> False
         _ -> True
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         x <- unsafeRead @Word8 mba i
         case x of
             0 -> return False
@@ -253,17 +253,16 @@ instance Unbox Bool where
     unsafeWrite mba i True = unsafeWrite @Word8 mba i 1
     {-# INLINE unsafeWrite #-}
 
-
 instance Unbox a => Unbox (Maybe a) where
     sizeOf _ = sizeOf (type (Sum [(), a])) 
     {-# INLINE sizeOf #-}
     alignment _ = alignment (type (Sum [(), a]))
     {-# INLINE alignment #-}
-    unsafeIndex ba i = case unsafeIndex @(Sum [(), a]) ba i of
+    unsafeIndex ba = \i -> case unsafeIndex @(Sum [(), a]) ba i of
         UnsafeSum 0 _ -> Nothing
         UnsafeSum _ x -> Just (Unsafe.Coerce.unsafeCoerce @GHC.Any @a x)
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         s <- unsafeRead @(Sum [(), a]) mba i
         case s of
             UnsafeSum 0 _ -> return Nothing
@@ -279,7 +278,7 @@ instance Unbox a => Unbox (Maybe a) where
 type Tuple :: [Type] -> Type
 data Tuple xs where
     TNil :: Tuple '[]
-    TCons :: a -> Tuple as -> Tuple (a : as)
+    TCons :: !a -> !(Tuple as) -> Tuple (a : as)
 
 instance Unbox (Tuple '[]) where
     sizeOf (Tuple []) = 0
@@ -298,13 +297,13 @@ instance Unbox a => Unbox (Tuple '[a]) where
     {-# INLINE sizeOf #-}
     alignment _ = alignment a
     {-# INLINE alignment #-}
-    unsafeIndex ba i = TCons (unsafeIndex ba i) TNil
+    unsafeIndex ba = \i -> TCons (unsafeIndex ba i) TNil
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         x <- unsafeRead mba i
         return (TCons x TNil)
     {-# INLINE unsafeRead #-}
-    unsafeWrite mba i (TCons x TNil) = unsafeWrite mba i x
+    unsafeWrite mba = \i (TCons x TNil) -> unsafeWrite mba i x
     {-# INLINE unsafeWrite #-}
 
 instance(Unbox a, Unbox b, Unbox (Tuple (b:cs))) => Unbox (Tuple (a : b : cs)) where
@@ -313,17 +312,17 @@ instance(Unbox a, Unbox b, Unbox (Tuple (b:cs))) => Unbox (Tuple (a : b : cs)) w
     {-# INLINE sizeOf #-}
     alignment _ = max (alignment a) (alignment (Tuple (b:cs)))
     {-# INLINE alignment #-}
-    unsafeIndex ba i = TCons (unsafeIndex ba i) (unsafeIndex ba (i + (sizeOf a + (l - 1) .&. (- l)))) where
+    unsafeIndex ba = \i -> TCons (unsafeIndex ba i) (unsafeIndex ba (i + (sizeOf a + (l - 1) .&. (- l)))) where
         l = 1 `unsafeShiftL` alignment (type b)
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         x <- unsafeRead mba i
         xs <- unsafeRead mba (i + (sizeOf a + (l - 1) .&. (- l)))
         return (TCons x xs)
         where
         l = 1 `unsafeShiftL` alignment (type b)
     {-# INLINE unsafeRead #-}
-    unsafeWrite mba i (TCons x xs) = do
+    unsafeWrite mba = \i (TCons x xs) -> do
         unsafeWrite mba i x
         unsafeWrite mba (i + (sizeOf a + (l - 1) .&. (- l))) xs
         where
@@ -357,7 +356,7 @@ instance Unbox a => UnboxUnion '[a] where
         return (UnsafeSum 0 (Unsafe.Coerce.unsafeCoerce @a @GHC.Any x))
     unsafeReadUnion _ _ _ = error "unsafeReadUnion: tag out of bounds"
     {-# INLINE unsafeReadUnion #-}
-    unsafeWriteUnion mba i (UnsafeSum _ x) = do
+    unsafeWriteUnion mba = \i (UnsafeSum _ x) -> do
         unsafeWrite mba i (Unsafe.Coerce.unsafeCoerce @GHC.Any @a x)
     {-# INLINE unsafeWriteUnion #-}
 
@@ -394,13 +393,13 @@ instance (UnboxUnion as) => Unbox (Sum as) where
         where
         l = 1 `unsafeShiftL` alignmentUnion as
     {-# INLINE unsafeIndex #-}
-    unsafeRead mba i = do
+    unsafeRead mba = \i -> do
         tag <- unsafeRead mba i
         unsafeReadUnion mba (i + (sizeOf Int32 + (l - 1) .&. (- l))) tag
         where
         l = 1 `unsafeShiftL` alignmentUnion as
     {-# INLINE unsafeRead #-}
-    unsafeWrite mba i s@(UnsafeSum tag _) = do
+    unsafeWrite mba = \i s@(UnsafeSum tag _) -> do
         unsafeWrite mba i tag
         unsafeWriteUnion mba (i + (sizeOf Int32 + (l - 1) .&. (- l))) s
         where

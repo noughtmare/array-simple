@@ -17,7 +17,7 @@
 -- of holding any Haskell value).
 module Data.Array.Simple.Unboxed (
   -- * Boxed Arrays
-  UArray, 
+  UArray (UnsafeUArray), 
   -- MUArray,
 
   -- * Accessors
